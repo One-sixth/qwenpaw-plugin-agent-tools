@@ -1,0 +1,68 @@
+{
+  "id": "qwenpaw-plugin-agent-tools",
+  "name": "QwenPaw增强Agent会话工具",
+  "version": "0.1.11",
+  "type": "tool",
+  "description": "面向 agent / 子 agent 会话的管理插件，把「spawn → 等待 → 交流 → 通知 → 上下文读取」整条链路接通：以任意 agent 为模板 spawn 持久子会话（非一次性，可续聊）、向子会话发起新一轮/读进度/停止、前台等待取最终正文（超时不杀会话）、完成通知自动唤醒（failed/cancelled 也触发）、跨会话上下文读取与 Markdown 导出。",
+  "author": "onesixth",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "2.2.0",
+    "max": "2.9.0"
+  },
+  "meta": {
+    "tools": [
+      {
+        "name": "agent_tools_spawn",
+        "description": "以指定 agent 为模板 spawn 持久子会话（默认后台，返回 chat_id），可用 wait 等完成取正文。",
+        "icon": "🚀",
+        "category": "agents"
+      },
+      {
+        "name": "agent_tools_communicate",
+        "description": "与子会话交互：send 发起新一轮（忙则排队）/ recv 读最新一轮正文 / stop 停止会话。",
+        "icon": "💬",
+        "category": "agents"
+      },
+      {
+        "name": "agent_tools_wait",
+        "description": "前台等待子会话回合结束并返回最终正文（超时不停止目标会话）。",
+        "icon": "⏳",
+        "category": "agents"
+      },
+      {
+        "name": "agent_tools_notice",
+        "description": "注册子会话完成通知（completed/failed/cancelled 均触发，仅会话空闲时投递）；cancel=True 取消。",
+        "icon": "🔔",
+        "category": "agents"
+      },
+      {
+        "name": "agent_tools_list_agent",
+        "description": "查看当前所有可用 agent（id/名字/启用状态/描述）。spawn 的 template 传这里的 id 字段。",
+        "icon": "🧭",
+        "category": "agents"
+      },
+      {
+        "name": "agent_tools_list_session",
+        "description": "列出本插件 spawn 的全部会话（状态/chat_id/最新回合/通知注册 🔔），用于找回 chat_id。",
+        "icon": "📋",
+        "category": "agents"
+      },
+      {
+        "name": "agent_tools_context_read",
+        "description": "读取会话上下文（默认最近数轮），支持正负索引翻页与 think/tool/monologue/驱逐历史开关。",
+        "icon": "📖",
+        "category": "agents"
+      },
+      {
+        "name": "agent_tools_context_export",
+        "description": "把会话上下文全量导出为 Markdown 块时间线文件（output_path 必填）。",
+        "icon": "📤",
+        "category": "agents"
+      }
+    ]
+  }
+}

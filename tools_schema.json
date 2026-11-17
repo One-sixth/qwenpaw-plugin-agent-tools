@@ -1,0 +1,385 @@
+{
+  "agent_tools_spawn": {
+    "type": "function",
+    "function": {
+      "name": "agent_tools_spawn",
+      "description": "以指定 agent 为模板 spawn 持久子会话（默认后台，返回 chat_id）。",
+      "parameters": {
+        "properties": {
+          "task": {
+            "description": "子会话首轮任务描述（自动加身份前缀）。",
+            "type": "string"
+          },
+          "template": {
+            "default": "",
+            "description": "目标 agent 的 id（list_agents 返回的 id 字段，非显示名）；\n空字符串 = 当前 agent 身份。",
+            "type": "string"
+          },
+          "background": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": true,
+            "description": "True=后台提交立即返回（默认）；False=前台等待至完成\n或超时（超时只放弃等待，绝不停止目标会话）。"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "background=False 时的前台等待上限（秒）；默认 600。"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "agent_tools_list_agent": {
+    "type": "function",
+    "function": {
+      "name": "agent_tools_list_agent",
+      "description": "查看当前所有可用 agent（id/名字/启用状态/描述）。spawn 的 template 传这里的 id 字段（非显示名）。",
+      "parameters": {
+        "properties": {},
+        "type": "object"
+      }
+    }
+  },
+  "agent_tools_list_session": {
+    "type": "function",
+    "function": {
+      "name": "agent_tools_list_session",
+      "description": "列出本插件 spawn 的全部会话（状态/chat_id/最新回合/通知注册 🔔），用于找回 chat_id。",
+      "parameters": {
+        "properties": {},
+        "type": "object"
+      }
+    }
+  },
+  "agent_tools_communicate": {
+    "type": "function",
+    "function": {
+      "name": "agent_tools_communicate",
+      "description": "与子会话交互：send 发起新一轮（忙则排队）/ recv 读最新一轮正文 / stop 停止。",
+      "parameters": {
+        "properties": {
+          "chat_id": {
+            "description": "子会话 id（完整 UUID，也支持其第一段 8 位 hex 短 id）。",
+            "type": "string"
+          },
+          "action": {
+            "default": "send",
+            "description": "send=发起新一轮（text 必填，忙则排队）；recv=读最新一轮\n正文（最终输出+自言自语，不含思考与工具调用）；stop=停止会话\n并清空排队。",
+            "type": "string"
+          },
+          "text": {
+            "default": "",
+            "description": "send 的消息文本（自动加身份前缀）；recv/stop 不需要。",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chat_id"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "agent_tools_wait": {
+    "type": "function",
+    "function": {
+      "name": "agent_tools_wait",
+      "description": "前台等待子会话回合结束并返回最终正文（超时不停止目标会话）。",
+      "parameters": {
+        "properties": {
+          "chat_id": {
+            "description": "子会话 id（完整 UUID，也支持其第一段 8 位 hex 短 id）。",
+            "type": "string"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": 900,
+            "description": "等待上限（秒），默认 900；超时返回仍运行中提示，可续等。"
+          }
+        },
+        "required": [
+          "chat_id"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "agent_tools_notice": {
+    "type": "function",
+    "function": {
+      "name": "agent_tools_notice",
+      "description": "注册子会话完成通知（completed/failed/cancelled 均触发）。",
+      "parameters": {
+        "properties": {
+          "chat_id": {
+            "description": "子会话 id（完整 UUID，也支持其第一段 8 位 hex 短 id）。",
+            "type": "string"
+          },
+          "cancel": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "True=取消注册并撤回待发通知。"
+          }
+        },
+        "required": [
+          "chat_id"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "agent_tools_context_read": {
+    "type": "function",
+    "function": {
+      "name": "agent_tools_context_read",
+      "description": "读取会话上下文（默认最近数轮），支持正负索引翻页与块过滤开关。",
+      "parameters": {
+        "properties": {
+          "chat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "目标会话 id（完整 UUID 或其第一段 8 位 hex 短 id）；不填=当前会话。"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "起始索引（见上）；不填读最近 count 轮。"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": 5,
+            "description": "读取轮数（默认 5，上限 50 自动降档）。"
+          },
+          "include_think": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "包含思考块。"
+          },
+          "include_tool": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "包含工具调用与结果块。"
+          },
+          "include_monologue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "包含自言自语块。"
+          },
+          "include_compressed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "包含 Scroll 驱逐历史（负索引轮）。"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "agent_tools_context_export": {
+    "type": "function",
+    "function": {
+      "name": "agent_tools_context_export",
+      "description": "把会话上下文全量导出为 Markdown 块时间线文件，返回路径。",
+      "parameters": {
+        "properties": {
+          "chat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "目标会话 id（完整 UUID 或其第一段 8 位 hex 短 id）；不填=当前会话。"
+          },
+          "output_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "导出 Markdown 路径（必填）。"
+          },
+          "include_think": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "包含思考块。"
+          },
+          "include_tool": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "包含工具调用与结果块。"
+          },
+          "include_monologue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "包含自言自语块。"
+          },
+          "include_compressed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": false,
+            "description": "包含 Scroll 驱逐历史（负索引轮）。"
+          }
+        },
+        "type": "object"
+      }
+    }
+  }
+}
