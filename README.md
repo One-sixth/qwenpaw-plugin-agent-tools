@@ -33,8 +33,9 @@ list_agent → spawn(task, template="demo-agent") → [CHAT_ID]
   → context_export(chat_id, output_path="...") 导出归档
 ```
 
-## 特性速览（v0.1.10）
+## 特性速览（v0.2.0）
 
+- **公共 SDK 架构**：v2.3.0 SDK 1.0.0 迁移完成——`PluginContext.register_tool + ToolSpec` 声明式注册，`on_activate` 生命周期 + `resources.defer` 卸载清理；工具函数本体零改动（换皮不换骨）
 - **短 id**：所有收 chat_id 的工具均支持完整 UUID 或其第一段 8 位 hex（前缀匹配；歧义显式拒绝——git commit hash 同款安全模式）。schema 参数描述与 spawn 返回提示均已注明
 - **簿记身份持久化**：spawn 时把身份字段（template/depth/parent/spawned_at）写入宿主 `chat.meta["agent_tools"]`（跟随 chats.json 落盘）；宿主重启/热装清簿记后，短 id 首次使用时自动从 chats.json 恢复回填（restored=True，含 parent 链）——list_session「恢复」区可见
 - **防误用三态**：①问答回合（spawn/send 调起）send 祖先 → 拦截（内容走正文）；②notice 触发回合 → 放行（通知回合已非问答会话，自由交流）；③send 非祖先 → 正常排队投递
@@ -47,12 +48,14 @@ list_agent → spawn(task, template="demo-agent") → [CHAT_ID]
 qwenpaw plugin install <zip> --force
 ```
 
-依赖：无第三方运行时依赖（纯宿主内部 API）。`qwenpaw_version: 2.2.0 ~ 2.9.0`。
+依赖：无第三方运行时依赖（纯宿主内部 API + 公共 SDK）。`qwenpaw_version: 2.3.0 ~ 2.9.0`（SDK 1.0.0）。
 
 ## 架构
 
 ```
-plugin.py          入口：register × 8 + 卸载钩子（任务登记表统一取消）
+plugin.py          入口：SDK 形态（PluginContext.register_tool + ToolSpec × 8）
+                   schema 动态推断（agentscope 推断函数）+ on_activate 生命周期
+                   + resources.defer 卸载清理
 manager.py         簿记单例：SpawnRecord 多回合 / 队列 / 活跃表 / 通知注册 / TTL
 submit.py          宿主适配器：_submit_turn 五步序列（照抄 /console/chat/task 端点）
                    + 消费者（SSE 错误信号 + 终态正文）+ stop 序列
