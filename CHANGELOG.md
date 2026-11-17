@@ -1,5 +1,26 @@
 # 更新日志
 
+
+## 0.2.0（2026-11-18）
+
+v2.3.0 SDK 迁移（作者拍板试点）：工具注册面换皮为公共 SDK，内部实现零改动。
+
+- **plugin.json**：新增 `"sdk": {"version": "1.0.0", "capabilities": ["tools"]}`；`qwenpaw_version.min` 2.2.0→2.3.0（SDK 仅 2.3.0+ 支持）
+- **plugin.py 重写**：`register(context: PluginContext)` 以 `ToolSpec` 注册 8 工具（`context.register_tool`）；schema 与 description 在 register 时经 agentscope `_extract_input_schema`（直接返回 parameters 层，实测）+ `_extract_func_description`（docstring）动态推断——v0.1.11 盲测过的瘦身文案**零漂移**，不手写平行 JSON；仅补 `additionalProperties: False`（额外键在 jsonschema 校验层拦截，报 ToolInputError）
+- **handler 适配**：SDK 以 `(ToolContext, arguments dict)` 调用——`_wrap` 解包回原签名 kwargs（`**dict(arguments)`），8 个工具函数本体**零改动**；sync/async handler 均兼容（list_agent/list_session 为同步 def）
+- **结果封装**：utils `make_error`/`make_success` 从 agentscope ToolChunk 改为 SDK `ToolResult`（`ToolResult.text(text, is_error=)`）——字段兼容（`content[0].text` 同名），104 个既有测试断言全透明
+- **生命周期**：资源创建必须进 `context.on_activate(callback)`（register 里碰 resources 会 ResourceError「Create resources in on_activate(), not register()」实测）——单例预热 + `context.resources.defer(_shutdown_tasks)`（SDK 无 startup/shutdown 生命周期相位，defer 在卸载时逆序执行，设计 §7 语义不变）
+- **TestHost 集成测试**（tests/test_sdk_host.py，+7）：真实加载链路——load→8 工具注册→call_tool（list_agent/list_session）→错误语义（spawn 空 task）→额外键 ToolInputError→sync handler→reload→unload quiescent
+- **TestHost 双副作用实锤（测试基座修复）**：
+  1. `host.load()` 后插件目录被移出 sys.path（loader 导入清理连坐同值条目）
+  2. host close 后 sys.modules 中从插件目录导入的扁平模块被清除——本插件目录即项目根，tests 以项目根导入的 manager/notifier/submit/tools.* **全部连坐** → 后续测试函数内 import 触发重新导入 → 新模块对象 → monkeypatch 打在旧对象上失效 → test_spawn/test_submit/test_utils 顺序性污染（7 failed）
+  修复：`_run` 驱动层 sys.modules 快照恢复——finally 补插 ROOT + 清 `plugin_*` 前缀模块 + 回填被清的旧模块对象（C 扩展禁止二次初始化，不删 host 期间新增的 numpy 等条目）
+- **体检基线**：`python -m qwenpaw.plugins.check` → 48 findings（38 private-import error + 10 unmanaged-resource warning）——private-import 全部为宿主内部 API 依赖（_submit_turn 照抄官方端点/console_push 气泡/MemorySpace/agentscope_msg_to_message 等，SDK 公共面无对应物，**换皮不换骨**设计注记）；加载器不跑 compliance，运行时不受影响；`--runtime` 被 `report.ok` 门禁挡住（error findings 存在即跳过）——故 TestHost 验证走测试文件
+- 测试：pytest **111 全绿**（104 原有零改动通过 + 7 TestHost 集成）；tools_schema.json 快照刷新（v0.1.9 旧文案 → v0.1.11 现行 + description 提取与运行时一致）
+- **真机热装验收（REPL 直调层，2026-11-18）**：热装 active/enabled=True；宿主内实锤 `instance.sdk_context = PluginContext`（loader.py:1794 SDK 分支生效，generation 3）；8/8 工具 ownership 正确登记（无 TestHost 观察到的 owner=None 警告）；REPL 直调 invoke 全链路 success（jsonschema→handler→ToolChunk 流式：running chunk 携正文 + success 收尾）；spawn 真提交成功——子会话 chat 创建 + `chat.meta["agent_tools"]` 持久化落盘（v0.1.8 特性在 SDK 版继续工作，文件级实锤）；wait/recv/stop/list_session 真机响应与文案全对（空正文防御分支/stop 序列/簿记终态「已完成（1）」）；子会话正文空系 REPL 无 contextvar 的 agent 路由特殊性（chats.json agent=None），非迁移回归——真实对话链路待新会话快照自然验收
+- 待办：新会话自然验收（对话内 spawn → 正文回收全链路）
+
+
 ## 0.1.11（2026-11-18）
 
 工具 schema 瘦身（作者拍板）：省 token、易懂、不说明内部工作原理。

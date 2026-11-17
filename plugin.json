@@ -1,7 +1,7 @@
 {
   "id": "qwenpaw-plugin-agent-tools",
   "name": "QwenPaw增强Agent会话工具",
-  "version": "0.1.11",
+  "version": "0.2.0",
   "type": "tool",
   "description": "面向 agent / 子 agent 会话的管理插件，把「spawn → 等待 → 交流 → 通知 → 上下文读取」整条链路接通：以任意 agent 为模板 spawn 持久子会话（非一次性，可续聊）、向子会话发起新一轮/读进度/停止、前台等待取最终正文（超时不杀会话）、完成通知自动唤醒（failed/cancelled 也触发）、跨会话上下文读取与 Markdown 导出。",
   "author": "onesixth",
@@ -9,8 +9,12 @@
     "backend": "plugin.py"
   },
   "dependencies": [],
+  "sdk": {
+    "version": "1.0.0",
+    "capabilities": ["tools"]
+  },
   "qwenpaw_version": {
-    "min": "2.2.0",
+    "min": "2.3.0",
     "max": "2.9.0"
   },
   "meta": {

@@ -2,6 +2,7 @@
 
 > 状态：**v2.2**（新增 agent_tools_list_agent；list 改名 list_session）｜ 2026-11-16 ｜ 撰写与拍板：作者
 > v2.1 → v2.2 变更：新增第 7 工具 `agent_tools_list_agent`（列可用 agent，对齐官方 list_agents）；原 `agent_tools_list` 改名 `agent_tools_list_session`（第 8 工具）；文案节顺延 §3.9；meta.tools 8 工具。
+> **SDK 迁移注记（v0.2.0，2026-11-18）**：工具注册面迁移到 v2.3.0 公共 SDK（PluginContext.register_tool + ToolSpec），分支 `sdk-migration`。**换皮不换骨**——manager/submit/notifier/context 等内部模块零改动，`_submit_turn`/console_push/MemorySpace 等宿主内部 API 依赖保持（SDK 公共面无对应物，check 报 private-import error 38 项属预期接受；加载器不跑 compliance）。生命周期契约：资源创建（单例预热 + resources.defer 卸载清理）必须进 `context.on_activate` 回调，register 仅声明。schema 动态推断（agentscope _extract_input_schema/_extract_func_description），v0.1.11 文案零漂移；仅补 additionalProperties=False。TestHost 集成测试 +7（含宿主双副作用快照恢复）。详见 CHANGELOG 0.2.0。
 > v2 → v2.1 变更：① communicate send 直接回合也建消费者跟踪终态（主链路修复）；② NoticeRecord 结构定稿 + 唤醒身份注册时捕获；③ `_submit_turn` 签名/返回契约定稿；④ communicate send 的 request_context 定义（续聊审批路由）；⑤ messenger 改 in-process 直调（决策 11 全自洽）；⑥ 前端伴生暂不做（决策 19）；⑦ list 工具与文案定稿分列 §3.7~§3.9；⑧ wait stale 分支、TTL 惰性清理、测试节、骨架补全（utils.py 等）、当前上下文获取器、depth 基准、TOCTOU 补偿、消费者禁级联硬约束、tracker buffer 风险。
 > v1 → v2 变更：修正三处版本偏差（tool_call/created_at/agent.state.context）、stop 路径与顺序、detach 清理、防误用收窄为祖先链判定、spawn 深度限制、新增 agent_tools_list、notice 简化为仅完成通知、SpawnRecord 多回合模型、队列独立结构、返回文案定稿、热重载风险。
 > 参考骨架：`qwenpaw-plugin-process-tools`（工程形态对齐）。⚠️ 文中宿主源码行号为指示性锚（以锁定的 qwenpaw_version 实测为准）。

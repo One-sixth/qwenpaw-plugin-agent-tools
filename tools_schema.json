@@ -3,16 +3,16 @@
     "type": "function",
     "function": {
       "name": "agent_tools_spawn",
-      "description": "以指定 agent 为模板 spawn 持久子会话（默认后台，返回 chat_id）。",
+      "description": "以指定 agent 为模板 spawn 持久子会话（默认后台，返回 chat_id）；完成后可用 communicate 续聊。",
       "parameters": {
         "properties": {
           "task": {
-            "description": "子会话首轮任务描述（自动加身份前缀）。",
+            "description": "子会话首轮任务描述。",
             "type": "string"
           },
           "template": {
             "default": "",
-            "description": "目标 agent 的 id（list_agents 返回的 id 字段，非显示名）；\n空字符串 = 当前 agent 身份。",
+            "description": "目标 agent 的 id（agent_tools_list_agent 返回的 id，非显示名）；空=自己。",
             "type": "string"
           },
           "background": {
@@ -28,7 +28,7 @@
               }
             ],
             "default": true,
-            "description": "True=后台提交立即返回（默认）；False=前台等待至完成\n或超时（超时只放弃等待，绝不停止目标会话）。"
+            "description": "True=后台立即返回（默认）；False=前台等完成（直接返回最终正文）或超时（超时只放弃等待，不停止会话）。"
           },
           "timeout": {
             "anyOf": [
@@ -46,7 +46,7 @@
               }
             ],
             "default": null,
-            "description": "background=False 时的前台等待上限（秒）；默认 600。"
+            "description": "background=False 时的等待上限（秒），默认 600。"
           }
         },
         "required": [
@@ -71,7 +71,7 @@
     "type": "function",
     "function": {
       "name": "agent_tools_list_session",
-      "description": "列出本插件 spawn 的全部会话（状态/chat_id/最新回合/通知注册 🔔），用于找回 chat_id。",
+      "description": "列出本插件 spawn 的全部会话（状态/chat_id/最新回合/通知注册 🔔），用于找回 chat_id；人工会话不在列。",
       "parameters": {
         "properties": {},
         "type": "object"
@@ -82,7 +82,7 @@
     "type": "function",
     "function": {
       "name": "agent_tools_communicate",
-      "description": "与子会话交互：send 发起新一轮（忙则排队）/ recv 读最新一轮正文 / stop 停止。",
+      "description": "与子会话交互：send 发起新一轮（忙则排队）/ recv 读最新一轮正文 / stop 停止。\n仅读最新一轮；读历史轮用 agent_tools_context_read。",
       "parameters": {
         "properties": {
           "chat_id": {
@@ -91,12 +91,12 @@
           },
           "action": {
             "default": "send",
-            "description": "send=发起新一轮（text 必填，忙则排队）；recv=读最新一轮\n正文（最终输出+自言自语，不含思考与工具调用）；stop=停止会话\n并清空排队。",
+            "description": "send=发起新一轮（text 必填，忙则排队）；recv=读最新一轮正文（最终输出+自言自语）；stop=停止并清空排队。",
             "type": "string"
           },
           "text": {
             "default": "",
-            "description": "send 的消息文本（自动加身份前缀）；recv/stop 不需要。",
+            "description": "send 的消息文本；recv/stop 无需传。",
             "type": "string"
           }
         },
@@ -131,7 +131,7 @@
               }
             ],
             "default": 900,
-            "description": "等待上限（秒），默认 900；超时返回仍运行中提示，可续等。"
+            "description": "等待上限（秒），默认 900；超时可续等。"
           }
         },
         "required": [
@@ -145,7 +145,7 @@
     "type": "function",
     "function": {
       "name": "agent_tools_notice",
-      "description": "注册子会话完成通知（completed/failed/cancelled 均触发）。",
+      "description": "注册子会话完成通知（每回合 completed/failed/cancelled 均触发）。通知在你停手（回合空闲）时投递，连续调工具期间暂存、停手补发。",
       "parameters": {
         "properties": {
           "chat_id": {
@@ -207,7 +207,7 @@
               }
             ],
             "default": null,
-            "description": "起始索引（见上）；不填读最近 count 轮。"
+            "description": "起始轮索引：正=可见区轮（0=最旧），负=压缩历史（-1 最新，越负越旧）；不填=最近 count 轮。"
           },
           "count": {
             "anyOf": [
@@ -279,7 +279,7 @@
               }
             ],
             "default": false,
-            "description": "包含 Scroll 驱逐历史（负索引轮）。"
+            "description": "包含被压缩的历史轮。"
           }
         },
         "type": "object"
@@ -290,7 +290,7 @@
     "type": "function",
     "function": {
       "name": "agent_tools_context_export",
-      "description": "把会话上下文全量导出为 Markdown 块时间线文件，返回路径。",
+      "description": "把会话上下文导出为 Markdown 块时间线文件，返回路径。",
       "parameters": {
         "properties": {
           "chat_id": {
@@ -315,7 +315,7 @@
               }
             ],
             "default": null,
-            "description": "导出 Markdown 路径（必填）。"
+            "description": "导出 Markdown 路径（必填，相对工作区）。"
           },
           "include_think": {
             "anyOf": [
@@ -375,7 +375,7 @@
               }
             ],
             "default": false,
-            "description": "包含 Scroll 驱逐历史（负索引轮）。"
+            "description": "包含被压缩的历史轮。"
           }
         },
         "type": "object"

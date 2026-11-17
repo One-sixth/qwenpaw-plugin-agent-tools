@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Agent Tools 公共工具函数。
 
-提供会话上下文定位、ToolChunk 结果封装、chat_id 形态校验与一步自愈、
+提供会话上下文定位、SDK ToolResult 结果封装、chat_id 形态校验与一步自愈、
 身份前缀构造、本地时间+偏移格式化等工具共享的底层能力。
 """
 
@@ -70,58 +70,33 @@ def current_channel() -> str:
         return "console"
 
 
-# ── ToolChunk 封装 ────────────────────────────────────────
+# ── 工具结果封装（SDK ToolResult） ────────────────────────
 
-_ToolChunk = None
-_ToolResultState = None
-_TextBlock = None
+_ToolResult = None
 
 
-def _import_toolchunk() -> None:
-    """懒加载 ToolChunk 相关类型（宿主 agentscope 运行时可用）。
+def _import_toolresult() -> None:
+    """懒加载 SDK ToolResult（qwenpaw 2.3.0+ plugins.tools 公共面）。
 
-    版本差异实测（宿主 agentscope 2.0.10 = 本机 conda 同版，复审 B-L1）：
-    ToolChunk 在 tool 顶层、ToolResultState 在 tool._response、TextBlock
-    在 message——回落链即主路径；首分支兼容 tool 顶层导出三件套的
-    潜在未来版本。
+    旧路径 ToolChunk 已废弃——SDK invoke wrapper 只接受 ToolResult；
+    迁移后统一从这里出结果（字段兼容：content[0].text 同名可访问）。
     """
-    global _ToolChunk, _ToolResultState, _TextBlock
-    if _ToolChunk is not None:
+    global _ToolResult
+    if _ToolResult is not None:
         return
-    try:
-        # 兼容 tool 顶层导出三件套的版本
-        from agentscope.tool import (  # noqa: F401
-            TextBlock, ToolChunk, ToolResultState,
-        )
+    from qwenpaw.plugins.tools import ToolResult
 
-        _ToolChunk, _ToolResultState, _TextBlock = (
-            ToolChunk, ToolResultState, TextBlock,
-        )
-        return
-    except ImportError:
-        pass
-    # 宿主/本机实测布局：分家导入
-    from agentscope.tool import ToolChunk
-    from agentscope.tool._response import ToolResultState
-    from agentscope.message import TextBlock
-
-    _ToolChunk, _ToolResultState, _TextBlock = (
-        ToolChunk, ToolResultState, TextBlock,
-    )
+    _ToolResult = ToolResult
 
 
-def make_success(text: str) -> "ToolChunk":
-    """构建成功结果 ToolChunk。
+def make_success(text: str) -> "ToolResult":
+    """构建成功结果 ToolResult。
 
     Args:
         text: 显示文本内容
     """
-    _import_toolchunk()
-    return _ToolChunk(
-        is_last=True,
-        state=_ToolResultState.SUCCESS,
-        content=[_TextBlock(type="text", text=text)],
-    )
+    _import_toolresult()
+    return _ToolResult.text(text)
 
 
 def format_error(action: str, reason: str = "", suggestion: str = "") -> str:
@@ -132,8 +107,8 @@ def format_error(action: str, reason: str = "", suggestion: str = "") -> str:
     return "\n".join(p for p in parts if p)
 
 
-def make_error(text: str, reason: str = "", suggestion: str = "") -> "ToolChunk":
-    """构建错误结果 ToolChunk。支持两种调用方式：
+def make_error(text: str, reason: str = "", suggestion: str = "") -> "ToolResult":
+    """构建错误结果 ToolResult。支持两种调用方式：
     - make_error("错误文本")
     - make_error("操作名", "原因", "建议")  # 自动调用 format_error 拼接
 
@@ -142,14 +117,10 @@ def make_error(text: str, reason: str = "", suggestion: str = "") -> "ToolChunk"
         reason: 当提供时，与 text 一起传给 format_error
         suggestion: 当提供时，传给 format_error
     """
-    _import_toolchunk()
+    _import_toolresult()
     if reason:
         text = format_error(text, reason, suggestion)
-    return _ToolChunk(
-        is_last=True,
-        state=_ToolResultState.ERROR,
-        content=[_TextBlock(type="text", text=text)],
-    )
+    return _ToolResult.text(text, is_error=True)
 
 
 # ── chat_id 形态校验 + 一步自愈 ───────────────────────────

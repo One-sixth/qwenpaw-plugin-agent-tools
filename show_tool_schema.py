@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """用 agentscope 的 _extract_input_schema 导出完整工具 schema。
 
-description 取自函数 docstring 中 Args: 之前的段落，
-parameters 取自 _extract_input_schema（从 Args: 中提取）。
-
-注意：QwenPaw 运行时实际使用 api.register_tool(description=...) 覆盖 description，
-此处仅为离线预览，与运行时不完全一致。
+SDK 迁移后运行时链路：plugin.py register 时以 _extract_input_schema
+（parameters）+ _extract_func_description（short+long 全拼接）构造
+ToolSpec——本脚本输出与运行时 LLM 可见 schema 一致（additionalProperties
+=False 由 register 层补充，此处未含）。
 """
 import json
 import os
@@ -15,7 +14,7 @@ _root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _root)
 os.chdir(_root)
 
-from agentscope.tool._utils import _extract_input_schema
+from agentscope.tool._utils import _extract_func_description, _extract_input_schema
 
 from tools.communicate import agent_tools_communicate
 from tools.context_export import agent_tools_context_export
@@ -28,11 +27,8 @@ from tools.wait import agent_tools_wait
 
 
 def _extract_description(func) -> str:
-    """从函数 docstring 提取第一段作为工具描述（离线预览用）。"""
-    doc = func.__doc__
-    if not doc:
-        return ""
-    return doc.strip().split("\n\n")[0]
+    """与运行时一致：agentscope _extract_func_description（短+长全拼接）。"""
+    return _extract_func_description(func.__doc__)
 
 
 tools = [

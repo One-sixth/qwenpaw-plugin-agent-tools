@@ -1,19 +1,26 @@
 # -*- coding: utf-8 -*-
-"""Agent Tools 插件入口。
+"""Agent Tools 插件入口（SDK 形态，qwenpaw 2.3.0+）。
 
-注册 8 个 agent/子会话管理工具到 QwenPaw Agent 工具箱：
+以 ToolSpec 注册 8 个 agent/子会话管理工具到 QwenPaw：
 spawn / communicate / wait / notice / list_agent / list_session /
 context_read / context_export。
 
-启动钩子空操作占位（簿记纯内存，无持久清理需求）；卸载钩子取消本插件
-全部后台任务（flusher / 消费者 / notice 监视协程），防热重载孤儿
-（设计 §7）。
+- schema 来源：register 时经 agentscope _extract_input_schema 从签名 +
+  docstring 实时推断（v0.1.11 盲测过的瘦身文案零漂移），不手写平行 JSON；
+  仅补 additionalProperties=False 在校验层拦截额外键。
+- handler 适配：SDK 以 (context, arguments dict) 调用——_wrap 解包回原签名
+  kwargs，8 个工具函数本体零改动。
+- 卸载清理：context.resources.defer（Registration 逆序执行），替代旧
+  register_shutdown_hook（SDK HookPhase 无生命周期相位，设计 §7 语义不变：
+  取消 flusher / 消费者 / notice 监视协程，防热重载孤儿）。
 """
 
 import asyncio
+import inspect
 import logging
 
-from qwenpaw.plugins.api import PluginApi
+from qwenpaw.plugins import PluginContext
+from qwenpaw.plugins.tools import ToolSpec
 
 from .manager import get_manager
 from .notifier import get_notifier
@@ -29,127 +36,94 @@ from .tools.context_export import agent_tools_context_export
 logger = logging.getLogger(__name__)
 
 
+def _wrap(handler):
+    """SDK handler 适配：arguments dict → 原签名 kwargs 解包。
+
+    参数宽容归一（_to_bool/_to_float/str strip）由各 handler 内部完成，
+    与旧路径行为一致；额外键由 schema additionalProperties=False 在
+    jsonschema 校验层拦截。sync/async handler 均兼容（list_agent/
+    list_session 为同步 def）。
+    """
+
+    async def invoke(_context, arguments):
+        result = handler(**dict(arguments))
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    return invoke
+
+
+def _infer_schema(handler) -> dict:
+    """从签名+docstring 推断 JSON Schema。
+
+    复用宿主 agentscope 推断（agentscope 2.0.10 实测路径
+    agentscope.tool._utils._extract_input_schema，直接返回 parameters 层），
+    补 additionalProperties=False 在校验层拦截额外键。
+    """
+    from agentscope.tool._utils import _extract_input_schema
+
+    return {
+        **_extract_input_schema(handler),
+        "additionalProperties": False,
+    }
+
+
+def _infer_description(handler) -> str:
+    """推断顶层描述（docstring 短+长全拼接，v0.1.11 瘦身文案原样）。"""
+    from agentscope.tool._utils import _extract_func_description
+
+    return _extract_func_description(handler.__doc__)
+
+
+# (name, handler, icon, tool_type, target_param)
+_TOOLS = [
+    ("agent_tools_spawn", agent_tools_spawn, "🚀", "internal", ""),
+    ("agent_tools_communicate", agent_tools_communicate, "💬", "internal",
+     "chat_id"),
+    ("agent_tools_wait", agent_tools_wait, "⏳", "internal", ""),
+    ("agent_tools_notice", agent_tools_notice, "🔔", "internal", ""),
+    ("agent_tools_list_agent", agent_tools_list_agent, "🧭", "internal", ""),
+    ("agent_tools_list_session", agent_tools_list_session, "📋", "internal",
+     ""),
+    ("agent_tools_context_read", agent_tools_context_read, "📖", "internal",
+     ""),
+    ("agent_tools_context_export", agent_tools_context_export, "📤",
+     "internal", ""),
+]
+
+
 class AgentToolsPlugin:
-    """Agent Tools 插件主类。"""
+    """Agent Tools 插件主类（SDK Plugin Protocol）。"""
 
-    def register(self, api: PluginApi) -> None:
-        logger.info("注册 Agent Tools 插件（8 个工具）...")
+    def register(self, context: PluginContext) -> None:
+        logger.info("注册 Agent Tools 插件（8 个工具，SDK 形态）...")
 
-        api.register_tool(
-            tool_name="agent_tools_spawn",
-            tool_func=agent_tools_spawn,
-            description=(
-                "以指定 agent 为模板 spawn 持久子会话（默认后台，返回 chat_id），"
-                "可用 wait 等完成取正文。"
-            ),
-            icon="🚀",
-            tool_type="internal",
-            target_param="",
-            enabled=True,
-        )
-        api.register_tool(
-            tool_name="agent_tools_communicate",
-            tool_func=agent_tools_communicate,
-            description=(
-                "与子会话交互：send 发起新一轮（忙则排队）/ "
-                "recv 读最新一轮正文 / stop 停止会话。"
-            ),
-            icon="💬",
-            tool_type="internal",
-            target_param="chat_id",
-            enabled=True,
-        )
-        api.register_tool(
-            tool_name="agent_tools_wait",
-            tool_func=agent_tools_wait,
-            description=(
-                "前台等待子会话回合结束并返回最终正文（超时不停止目标会话）。"
-            ),
-            icon="⏳",
-            tool_type="internal",
-            target_param="",
-            enabled=True,
-        )
-        api.register_tool(
-            tool_name="agent_tools_notice",
-            tool_func=agent_tools_notice,
-            description=(
-                "注册子会话完成通知（completed/failed/cancelled 均触发，"
-                "仅会话空闲时投递）；cancel=True 取消。"
-            ),
-            icon="🔔",
-            tool_type="internal",
-            target_param="",
-            enabled=True,
-        )
-        api.register_tool(
-            tool_name="agent_tools_list_agent",
-            tool_func=agent_tools_list_agent,
-            description=(
-                "查看当前所有可用 agent（id/名字/启用状态/描述）。"
-                "spawn 的 template 传这里的 id 字段。"
-            ),
-            icon="🧭",
-            tool_type="internal",
-            target_param="",
-            enabled=True,
-        )
-        api.register_tool(
-            tool_name="agent_tools_list_session",
-            tool_func=agent_tools_list_session,
-            description=(
-                "列出本插件 spawn 的全部会话（状态/chat_id/最新回合/通知注册 🔔），"
-                "用于找回 chat_id。"
-            ),
-            icon="📋",
-            tool_type="internal",
-            target_param="",
-            enabled=True,
-        )
-        api.register_tool(
-            tool_name="agent_tools_context_read",
-            tool_func=agent_tools_context_read,
-            description=(
-                "读取会话上下文（默认最近数轮），支持正负索引翻页与 "
-                "think/tool/monologue/驱逐历史开关。"
-            ),
-            icon="📖",
-            tool_type="internal",
-            target_param="",
-            enabled=True,
-        )
-        api.register_tool(
-            tool_name="agent_tools_context_export",
-            tool_func=agent_tools_context_export,
-            description=(
-                "把会话上下文全量导出为 Markdown 块时间线文件"
-                "（output_path 必填）。"
-            ),
-            icon="📤",
-            tool_type="internal",
-            target_param="",
-            enabled=True,
-        )
+        for name, handler, icon, tool_type, target_param in _TOOLS:
+            context.register_tool(ToolSpec(
+                name=name,
+                description=_infer_description(handler),
+                input_schema=_infer_schema(handler),
+                handler=_wrap(handler),
+                enabled=True,
+                tool_type=tool_type,
+                target_param=target_param,
+                icon=icon,
+            ))
 
-        # ── 启动钩子：占位（簿记纯内存态，无持久清理需求） ──
-        api.register_startup_hook(
-            "agent_tools_startup",
-            self._startup_mark,
-            priority=90,
-        )
-        # ── 卸载钩子：取消本插件全部后台任务（防热重载孤儿） ──
-        api.register_shutdown_hook(
-            "agent_tools_shutdown",
-            self._shutdown_tasks,
-            priority=110,
-        )
+        # ── 激活回调：资源创建必须在 on_activate（SDK 生命周期契约，
+        #    register 仅声明——register 里碰 resources 会 ResourceError） ──
+        context.on_activate(self._activate)
 
         logger.info("✓ Agent Tools 插件注册完成（8 个工具）")
 
-    def _startup_mark(self) -> None:
-        """启动标记：获取单例确保注册时点状态可用。"""
+    def _activate(self, context: PluginContext) -> None:
+        """激活：单例预热 + 卸载清理登记（原 startup/shutdown hook 等价物）。"""
         get_manager()
         get_notifier()
+        context.resources.defer(
+            self._shutdown_tasks, "agent_tools_shutdown",
+        )
 
     async def _shutdown_tasks(self) -> None:
         """应用退出/插件卸载：取消全部登记任务（flusher/消费者/监视协程

@@ -40,6 +40,8 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 | 0.1.9 | schema 短 id 可发现性：5 工具参数描述 + spawn 返回提示统一补「完整 UUID 或第一段 8 位 hex 短 id」（此前零处提及、唯一提示在报错文案）；101 绿 +schema 回归锁定用例。**模糊语言测试通过**：无上下文第三方 agent 拿到 8 位 id（措辞无短 id 暗示）→ [tool_call] 实锤原样传参 `communicate(chat_id="14c9e0c7")` → miss 触发 meta 恢复 → 命中——「拿到什么传什么」是 LLM 自然行为，恢复链路在真实第三方调用下全串联工作 |
 | 0.1.10 | 防误用祖先链 gap 修复（通知回合反向 send 测试发现）：check_misuse 增 target_agent_id 显式参数（locate 直传，主会话不在簿记反查空串的 fail-open 缺口堵死）；notice 回合放行为零代码天然例外；三态全景真机闭环；104 绿（详见 CHANGELOG 0.1.10） |
 | 0.1.11 | schema 瘦身（2026-11-18，作者拍板）：8 工具 docstring 1388→1095 字符（-21%）——删内部原理/去 Scroll 术语/消见上断链；盲测驱动（3 无上下文子 agent 零试错全对 + 抓回 5 微调）；意外发现知识库「\n\n 截断规则」已过时（agentscope 改 short+long 全拼接）并勘误；104 绿（详见 CHANGELOG 0.1.11） |
+| 0.2.0 | v2.3.0 SDK 迁移试点（2026-11-18，作者拍板，分支 sdk-migration）：注册面换皮 PluginContext.register_tool + ToolSpec；schema 动态推断（agentscope 推断函数）v0.1.11 文案零漂移 + additionalProperties=False；make_error/make_success → SDK ToolResult（字段兼容 104 测试透明）；生命周期实锤——资源创建必须 on_activate（register 碰 resources 报 ResourceError）；TestHost 集成测试 +7 + 宿主双副作用实锤（load 移 sys.path 条目 / close 清同目录扁平模块 → 快照恢复修复）；体检基线 48 findings（38 private-import = 换皮不换骨预期）；111 绿（详见 CHANGELOG 0.2.0） |
+
 
 ## 设计决策要点（拍板记录）
 

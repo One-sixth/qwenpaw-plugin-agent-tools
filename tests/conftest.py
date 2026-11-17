@@ -18,13 +18,24 @@ for p in (str(ROOT), str(TESTS_DIR)):
 
 @pytest.fixture(autouse=True)
 def _reset_singletons():
-    """每测试前后清空全部进程内存态单例（防跨测试状态泄漏）。"""
+    """每测试前后清空全部进程内存态单例（防跨测试状态泄漏）。
+
+    ⚠️ TestHost（test_sdk_host）load 插件时 loader 会把插件目录插入
+    sys.path、导入完成后清理——会把本文件顶层插入的 ROOT 一并移除
+    （同字符串条目）。此处每次进入都重新确保 ROOT 在 sys.path，
+    兜底 teardown 阶段的扁平导入（messenger/manager）。
+    """
+    root = str(ROOT)
+    if root not in sys.path:
+        sys.path.insert(0, root)
     from manager import get_manager
     from notifier import reset_notifier
 
     get_manager().reset_manager()
     reset_notifier()
     yield
+    if root not in sys.path:
+        sys.path.insert(0, root)
     get_manager().reset_manager()
     reset_notifier()
 
