@@ -1,5 +1,15 @@
 # 更新日志
 
+
+## 0.2.3（2026-11-18）
+
+notice 气泡 busy 重试刷屏修复（作者报 bug：wait + notice 并用、父会话继续干活期间气泡反复弹）。
+
+- **根因（notifier._deliver 双投递顺序颠倒）**：照抄 process-tools 时把「唤醒 → 气泡」写成了「气泡 → 唤醒」——console 路径**先无条件 `console_push_store.append` 再 `_submit_turn`**，父会话忙（is_new_run=False）时气泡已发出、批次放回队首，flusher 每 3s 重试一次就 append 一次 → 每 3 秒弹一次气泡，直到父会话停手唤醒成功才停
+- **修复（对齐 process-tools「唤醒成功才发气泡」语义）**：`_deliver` console 路径改为先 `_submit_turn`：busy（is_new_run=False）→ 返回 False 忙等重试、**不发气泡**；成功 → 才 append 聚合气泡 + detach；提交异常（真失败）→ 尽力发气泡（通知文本至少可见）+ 不重试。气泡逻辑抽 `_push_bubble()` 辅助（process-tools 同款），模块 docstring 双投递语义同步
+- 测试：pytest **122 全绿**（120 + 2 回归：busy 重试期间气泡零重复 + 最终成功仅 1 条聚合气泡；唤醒异常真失败仍发 1 条且不重试——test_regression_fixes）
+
+
 ## 0.2.2（2026-11-18）
 
 context_export 导出路径修复（作者另一会话实测发现）。

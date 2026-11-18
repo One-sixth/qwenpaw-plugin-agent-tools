@@ -2,7 +2,7 @@
 
 ## 一句话定位
 
-agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.2，2026-11-17 首发，v0.2.0 起 SDK 形态）。
+agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.3，2026-11-17 首发，v0.2.0 起 SDK 形态）。
 
 ## 关键档案
 
@@ -11,8 +11,9 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 - 架构与用法：见 `README.md`
 - 版本细节：见 `CHANGELOG.md`（每批次完整记录）
 
-## 当前状态（v0.2.2）
+## 当前状态（v0.2.3）
 
+- **notice 气泡 busy 重试刷屏修复（v0.2.3，2026-11-18，作者报 bug）**：wait + notice 并用、父会话继续干活期间气泡反复弹（每 3s 一次直到停手）——根因 `_deliver` 双投递顺序颠倒（照抄 process-tools 时把「唤醒→气泡」写成「气泡→唤醒」，busy 重试每次都 append 气泡）；修复对齐 process-tools「唤醒成功才发气泡」语义：busy 不发气泡、成功才发、真失败仍尽力发（文本可见）；气泡逻辑抽 `_push_bubble()`；测试 122 全绿（+2 回归）；**真机验收通过（spawn 60s 等待任务 + notice + wait 并用，wait 返回后持续干活 31s 覆盖 ~10 次 busy 重试气泡全程 0 条，停手后恰好 1 条气泡 + 通知 turn 送达，console_push_store 全程实测）**
 - **context_export 相对路径修复（v0.2.2，2026-11-18）**：`Path(output_path)` 旧挂宿主进程 cwd（实测落 miniconda Scripts/，文件「消失」）→ utils 新增 `get_workspace_dir()`（内核 `qwenpaw.config.context.get_tool_base_dir` 三级回落「项目目录→agent 工作区→WORKING_DIR」，无 qwenpaw 回落空串；file-tools v1.8.3 / process-tools v0.6.8 同款 wrapper）+ `resolve_workspace_path()`（相对挂基准、绝对/`~` 照用，纯字符串运算）；成功消息回显绝对路径；schema 描述同步（schemas.py 唯一来源 → show_tool_schema.py 快照重生成）；测试 120 全绿（+3：相对挂基准落盘/消息含绝对路径集成 + resolve 两单元）；宿主内实测（internal-debug REPL）：回合外无 contextvar 回落 WORKING_DIR 而非宿主 cwd，回合内与 file-tools 27 工具同语义；**真机验收通过**（另一会话实测，zip 热装 + commit 同日完成）
 - 测试 120 全绿（纯 mock + 真单例集成 + TestHost，无 qwenpaw 运行时依赖）；已热装服役；**自然验收闭环（2026-11-18）**——spawn→wait 正文回收 / notice 全链路唤醒 / B2 注入路径实战 / B3 托管 task name 前缀实锤 / 分裂窗口收敛（8/8 SDK descriptor 绑 gen4）
 - **SDK 深化三件套（v0.2.1，2026-11-18）**：① A1 schema 固化——8 工具 description/input_schema 从 agentscope 运行时推断切换 schemas.py 固化常量（v0.2.0 推断结果原样，盲测文案零漂移），**运行时零 agentscope 私有依赖**；**schemas.py = 唯一正式 schema 来源（LLM 可见）**，docstring 降级代码注释**不做双向锚定**（作者拍板：双向对齐麻烦），短 id 锁定对象下迁至常量（test_persistence.py），show_tool_schema.py 改常量导出器（--check 模式）+ 快照升级含 additionalProperties；② B2 ToolContext 注入——_wrap set/reset `utils._CALL_CTX`，get_current_context 优先读（agent_id=workspace_id 实锤同源），工具函数零改动；⚠️ ToolContext 无 user_id，注入路径 user_id 仍内核 API 补齐（公共面缺口）；③ B3 task 托管——manager.spawn_managed（resources.task 优先/裸 create_task 回落），两处 flusher 迁托管（Registration 自动回收无累积），_shutdown_tasks 保留兜底（stop_task done→return 幂等实锤），消费者/监视协程不动
@@ -45,6 +46,7 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 | 0.2.0 | v2.3.0 SDK 迁移试点（2026-11-18，作者拍板，分支 sdk-migration）：注册面换皮 PluginContext.register_tool + ToolSpec；schema 动态推断（agentscope 推断函数）v0.1.11 文案零漂移 + additionalProperties=False；make_error/make_success → SDK ToolResult（字段兼容 104 测试透明）；生命周期实锤——资源创建必须 on_activate（register 碰 resources 报 ResourceError）；TestHost 集成测试 +7 + 宿主双副作用实锤（load 移 sys.path 条目 / close 清同目录扁平模块 → 快照恢复修复）；体检基线 48 findings（38 private-import = 换皮不换骨预期）；111 绿（详见 CHANGELOG 0.2.0） |
 | 0.2.1 | SDK 深化三件套（2026-11-18，作者拍板）：A1 schema 固化 schemas.py（唯一正式 schema 来源，运行时零 agentscope 依赖；docstring 解耦不做双向锚定——双向锁定用例即建即撤，短 id 锁定下迁至常量）+ B2 ToolContext 注入 _CALL_CTX（agent_id/session_id 走公共面，user_id 公共面缺口保留内核）+ B3 flusher 迁 resources.task 托管（spawn_managed 注入优先/回落，Registration 自动回收）；B1 流式明确不做；四路对抗复审+动态测试（零 HIGH，5 处修复：监视协程 on_turn_finished 补防护/短 id 参数级锁/wait timeout null/异常传播契约用例/reset 注释），117 绿（详见 CHANGELOG 0.2.1） |
 | 0.2.2 | context_export 相对路径修复（2026-11-18，作者直觉测试抓出）：旧 `Path(output_path)` 挂宿主进程 cwd（实测落 miniconda Scripts/ 文件「消失」+ 成功消息回显相对路径误导）→ utils 新增 `get_workspace_dir()`（内核 `get_tool_base_dir` 三级回落）+ `resolve_workspace_path()`（相对挂基准/绝对与 `~` 照用，纯字符串运算）；成功消息回显绝对路径；schemas.py 描述同步 + 快照重生成；120 绿（+3 用例）（详见 CHANGELOG 0.2.2） |
+| 0.2.3 | notice 气泡 busy 重试刷屏修复（2026-11-18，作者报 bug）：wait+notice 并用、父会话干活期间气泡每 3s 反复弹——根因 `_deliver` 双投递顺序颠倒（照抄 process-tools 时「唤醒→气泡」写成「气泡→唤醒」，busy 重试每次都 append）；修复对齐「唤醒成功才发气泡」：busy 不发/成功才发/真失败仍尽力发；抽 `_push_bubble()`；122 绿（+2 回归）（详见 CHANGELOG 0.2.3） |
 
 
 ## 设计决策要点（拍板记录）

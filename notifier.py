@@ -17,13 +17,14 @@
     1. 首条通知启动 flusher，睡 FLUSH_WINDOW_SECONDS（3s）聚合；
     2. 窗口到点原子拿走全部累积 → 过滤已取消 → 空则退出；
     3. 会话忙（唤醒提交 is_new_run=False / 信使 busy）→ 存活条目放回
-       队首再等 3s，**忙等无上限、永不放弃**；
+       队首再等 3s，**忙等无上限、永不放弃**（忙等期间不发气泡）；
     4. 空闲 → 聚合为一条文本投出（文本注册时已冻结，撤回靠 cancelled
        过滤 + 3s 窗口）。
-  真失败不重试记日志；busy 是唯一重试态。无锁设计：单线程事件循环 +
-  全同步原子段。
-- **console 双投递**：console_push_store 气泡 + _submit_turn 唤醒父会话
-  （唤醒提交不建消费者，is_new_run=True 后直接 detach——fire-and-forget）；
+   真失败不重试记日志；busy 是唯一重试态。无锁设计：单线程事件循环 +
+   全同步原子段。
+- **console 双投递**：唤醒成功才发气泡（busy 重试期间不重复刷屏） +
+   _submit_turn 唤醒父会话（唤醒提交不建消费者，is_new_run=True 后直接
+   detach——fire-and-forget）；唤醒真失败时仍尽力发气泡（通知文本至少可见）；
 - **非 console 信使路由**：in-process ``await run_wake``（决策 18，无 HTTP）。
 """
 
@@ -279,6 +280,16 @@ class AgentToolsNotifier:
 
     # ── 投递 ──
 
+    @staticmethod
+    async def _push_bubble(session_id: str, text: str) -> None:
+        """投一条 console 气泡（尽力，失败不阻断）。"""
+        try:
+            from qwenpaw.app import console_push_store
+
+            await console_push_store.append(session_id, text)
+        except Exception:  # noqa: BLE001
+            logger.warning("通知气泡投递失败", exc_info=True)
+
     async def _deliver(self, key: tuple, acc: _NoticeAccumulator,
                        batch: list) -> bool:
         """聚合文本一口气投出。True=投出（含真失败放弃）；False=busy 重试。"""
@@ -301,23 +312,21 @@ class AgentToolsNotifier:
             return True  # 真失败不重试
 
         if wake_channel == "console":
-            # 双投递①：气泡（60s 过期 + 500 条上限——丢失不影响唤醒主链路）
-            try:
-                from qwenpaw.app import console_push_store
-
-                await console_push_store.append(wake_session_id, text)
-            except Exception:  # noqa: BLE001
-                logger.warning("通知气泡投递失败", exc_info=True)
-            # 双投递②：唤醒父会话（不建消费者，fire-and-forget）
+            # 双投递②先行：唤醒父会话（busy 时不发气泡——process-tools
+            # 同款语义「唤醒成功才发气泡」，防 busy 重试反复刷屏）
             try:
                 result = await _submit_turn(
                     workspace, wake_session_id, wake_user_id, "console", text,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("唤醒提交异常：%r", exc)
+                # 真失败：尽力发气泡（通知文本至少可见），不重试
+                await self._push_bubble(wake_session_id, text)
                 return True  # 真失败不重试
             if not result.is_new_run:
-                return False  # 父会话忙 → flusher 忙等重试无上限
+                return False  # 父会话忙 → flusher 忙等重试无上限（不发气泡）
+            # 双投递①：唤醒成功后才发气泡
+            await self._push_bubble(wake_session_id, text)
             await workspace.task_tracker.detach_subscriber(
                 result.chat_id, result.queue,
             )

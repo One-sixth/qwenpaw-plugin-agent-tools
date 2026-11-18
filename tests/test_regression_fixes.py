@@ -1049,3 +1049,99 @@ def test_export_relative_path_resolves_base_dir(monkeypatch, tmp_path):
     assert expected.exists(), f"相对路径未挂基准目录落盘；消息={text}"
     assert str(expected) in text, f"成功消息未回显绝对路径：{text}"
     assert "绝对路径" in text, text
+
+
+# ── notice 气泡只在最终投递时发（2026-11-18 作者报 bug：busy 重试反复刷屏） ──
+
+
+def test_notice_bubble_only_on_final_delivery(monkeypatch):
+    """console 唤醒 busy 重试期间不发气泡；唤醒成功才发一条聚合气泡。
+
+    修复前 _deliver 先无条件 append 气泡再 _submit_turn——busy 重试
+    每 3s 弹一次气泡，直到父会话空闲才停（作者实测复现）。
+    """
+    import submit as submit_mod
+    from notifier import get_notifier
+
+    calls = {"n": 0}
+
+    async def busy_then_ok(ws, sid, uid, ch, text, **kw):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            return submit_mod.SubmitResult("chat-wake", False, None, None)
+        return submit_mod.SubmitResult(
+            "chat-wake", True, asyncio.Queue(),
+            {"producer_cancelled": False, "producer_error": None},
+        )
+
+    monkeypatch.setattr(submit_mod, "_submit_turn", busy_then_ok)
+    workspace = MockWorkspace(agent_id="parent")
+    monkeypatch.setattr(submit_mod, "get_workspace", lambda aid: workspace)
+
+    bubbles = []
+
+    async def _fake_append(session_id, text, *, sticky=False):
+        bubbles.append((session_id, text, sticky))
+
+    monkeypatch.setattr(
+        "qwenpaw.app.console_push_store.append", _fake_append,
+    )
+
+    key = ("parent", "u", "sess-bubble", "console")
+
+    async def _body():
+        ok = await get_notifier()._deliver(
+            key, object(), [type("P", (), {"text": "通知A", "is_alive": lambda s: True})()],
+        )
+        assert ok is False, "busy 应返回 False 触发 flusher 忙等"
+        ok2 = await get_notifier()._deliver(
+            key, object(), [type("P", (), {"text": "通知A", "is_alive": lambda s: True})()],
+        )
+        assert ok2 is True, "成功应返回 True"
+        return bubbles
+
+    bubbles = asyncio.run(_body())
+    assert calls["n"] == 2, f"busy 重试共提交 2 次，实际 {calls['n']}"
+    assert len(bubbles) == 1, (
+        f"busy 重试期间不应发气泡，最终成功才发 1 条；实际 {len(bubbles)} 条"
+    )
+    assert "通知A" in bubbles[0][1]
+
+
+def test_notice_bubble_on_submit_failure(monkeypatch):
+    """唤醒提交真失败（异常）时仍尽力发气泡（通知文本至少可见），
+    且不重试（返回 True 批次自然消失）。"""
+    import submit as submit_mod
+    from notifier import get_notifier
+
+    calls = {"n": 0}
+
+    async def _always_raise(ws, sid, uid, ch, text, **kw):
+        calls["n"] += 1
+        raise RuntimeError("host api broken")
+
+    monkeypatch.setattr(submit_mod, "_submit_turn", _always_raise)
+    workspace = MockWorkspace(agent_id="parent")
+    monkeypatch.setattr(submit_mod, "get_workspace", lambda aid: workspace)
+
+    bubbles = []
+
+    async def _fake_append(session_id, text, *, sticky=False):
+        bubbles.append((session_id, text, sticky))
+
+    monkeypatch.setattr(
+        "qwenpaw.app.console_push_store.append", _fake_append,
+    )
+
+    key = ("parent", "u", "sess-fail", "console")
+
+    async def _body():
+        return await get_notifier()._deliver(
+            key, object(), [type("P", (), {"text": "通知B", "is_alive": lambda s: True})()],
+        )
+
+    ok = asyncio.run(_body())
+    assert ok is True, "真失败不重试（返回 True 批次消失）"
+    assert calls["n"] == 1, "真失败只提交一次"
+    assert len(bubbles) == 1, "真失败仍发一条气泡保证通知文本可见"
+    assert "通知B" in bubbles[0][1]
