@@ -200,9 +200,19 @@ class AgentToolsNotifier:
                             "监视协程正文读取失败（chat=%s）",
                             record.target_chat_id, exc_info=True,
                         )
-                    self.on_turn_finished(
-                        record.target_chat_id, "completed", result_text,
-                    )
+                    try:
+                        self.on_turn_finished(
+                            record.target_chat_id, "completed", result_text,
+                        )
+                    except Exception:  # noqa: BLE001
+                        # 与 submit.py 消费者路径同款防护：B3 起
+                        # on_turn_finished → spawn_managed 可抛
+                        # ResourceError/StaleContextError（卸载窗口），
+                        # 不能让 watch task 带未处理异常死亡
+                        logger.warning(
+                            "notice 触发失败（chat=%s）",
+                            record.target_chat_id, exc_info=True,
+                        )
                     return
                 # 未见 running 的 idle：迁移门拦截，继续轮询
                 if datetime.now() >= deadline:
@@ -241,7 +251,9 @@ class AgentToolsNotifier:
         """懒启动 flusher（每唤醒目标会话一个）。"""
         if acc.flusher_task is not None and not acc.flusher_task.done():
             return
-        acc.flusher_task = asyncio.create_task(self._flusher(acc, key))
+        acc.flusher_task = get_manager().spawn_managed(
+            self._flusher(acc, key), "notice_flusher",
+        )
 
     async def _flusher(self, acc: _NoticeAccumulator, key: tuple) -> None:
         """聚合投递循环（swap-and-clear + 忙等放回，无上限）。"""

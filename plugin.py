@@ -5,11 +5,13 @@
 spawn / communicate / wait / notice / list_agent / list_session /
 context_read / context_export。
 
-- schema 来源：register 时经 agentscope _extract_input_schema 从签名 +
-  docstring 实时推断（v0.1.11 盲测过的瘦身文案零漂移），不手写平行 JSON；
-  仅补 additionalProperties=False 在校验层拦截额外键。
+- schema 来源：_TOOL_SCHEMAS 固化常量（schemas.py，**唯一正式 schema
+  来源**，LLM 可见）——docstring / Args 注解只是代码注释，不参与 schema
+  生成、不要求同步（作者拍板：不做双向锚定）；改 schema 只改 schemas.py，
+  改完跑 show_tool_schema.py 刷新快照。
 - handler 适配：SDK 以 (context, arguments dict) 调用——_wrap 解包回原签名
-  kwargs，8 个工具函数本体零改动。
+  kwargs，8 个工具函数本体零改动；ToolContext 注入 request-local
+  contextvar（get_current_context 优先读，内部 API 回落）。
 - 卸载清理：context.resources.defer（Registration 逆序执行），替代旧
   register_shutdown_hook（SDK HookPhase 无生命周期相位，设计 §7 语义不变：
   取消 flusher / 消费者 / notice 监视协程，防热重载孤儿）。
@@ -24,6 +26,8 @@ from qwenpaw.plugins.tools import ToolSpec
 
 from .manager import get_manager
 from .notifier import get_notifier
+from .schemas import _TOOL_SCHEMAS
+from .utils import _CALL_CTX
 from .tools.spawn import agent_tools_spawn
 from .tools.communicate import agent_tools_communicate
 from .tools.wait import agent_tools_wait
@@ -43,37 +47,22 @@ def _wrap(handler):
     与旧路径行为一致；额外键由 schema additionalProperties=False 在
     jsonschema 校验层拦截。sync/async handler 均兼容（list_agent/
     list_session 为同步 def）。
+    ToolContext 注入 _CALL_CTX（utils.get_current_context 优先读，
+    agent_id/session_id 走 SDK 公共面），调用完 reset——工具函数本体
+    零改动。
     """
 
-    async def invoke(_context, arguments):
-        result = handler(**dict(arguments))
-        if inspect.isawaitable(result):
-            result = await result
-        return result
+    async def invoke(context, arguments):
+        token = _CALL_CTX.set(context)
+        try:
+            result = handler(**dict(arguments))
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        finally:
+            _CALL_CTX.reset(token)
 
     return invoke
-
-
-def _infer_schema(handler) -> dict:
-    """从签名+docstring 推断 JSON Schema。
-
-    复用宿主 agentscope 推断（agentscope 2.0.10 实测路径
-    agentscope.tool._utils._extract_input_schema，直接返回 parameters 层），
-    补 additionalProperties=False 在校验层拦截额外键。
-    """
-    from agentscope.tool._utils import _extract_input_schema
-
-    return {
-        **_extract_input_schema(handler),
-        "additionalProperties": False,
-    }
-
-
-def _infer_description(handler) -> str:
-    """推断顶层描述（docstring 短+长全拼接，v0.1.11 瘦身文案原样）。"""
-    from agentscope.tool._utils import _extract_func_description
-
-    return _extract_func_description(handler.__doc__)
 
 
 # (name, handler, icon, tool_type, target_param)
@@ -100,10 +89,11 @@ class AgentToolsPlugin:
         logger.info("注册 Agent Tools 插件（8 个工具，SDK 形态）...")
 
         for name, handler, icon, tool_type, target_param in _TOOLS:
+            spec = _TOOL_SCHEMAS[name]
             context.register_tool(ToolSpec(
                 name=name,
-                description=_infer_description(handler),
-                input_schema=_infer_schema(handler),
+                description=spec["description"],
+                input_schema=spec["input_schema"],
                 handler=_wrap(handler),
                 enabled=True,
                 tool_type=tool_type,
@@ -118,9 +108,11 @@ class AgentToolsPlugin:
         logger.info("✓ Agent Tools 插件注册完成（8 个工具）")
 
     def _activate(self, context: PluginContext) -> None:
-        """激活：单例预热 + 卸载清理登记（原 startup/shutdown hook 等价物）。"""
-        get_manager()
+        """激活：单例预热 + 资源注入 + 卸载清理登记（原 startup/shutdown
+        hook 等价物）。"""
+        manager = get_manager()
         get_notifier()
+        manager.resources = context.resources  # flusher 托管（B3）
         context.resources.defer(
             self._shutdown_tasks, "agent_tools_shutdown",
         )

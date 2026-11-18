@@ -116,3 +116,81 @@ def test_notice_registry():
 
 def test_depth_limit_constant():
     assert MAX_SPAWN_DEPTH == 5
+
+
+# ── B3：spawn_managed 托管（v0.2.1） ────────────────────
+
+
+def test_spawn_managed_falls_back_without_resources():
+    """B3：resources 未注入（测试/直调）→ 回落裸 create_task（旧行为）。"""
+    import asyncio
+
+    async def _body():
+        async def _noop():
+            await asyncio.sleep(0)
+
+        mgr = get_manager()
+        assert mgr.resources is None
+        task = mgr.spawn_managed(_noop(), "t")
+        assert isinstance(task, asyncio.Task)
+        task.cancel()
+
+    asyncio.run(_body())
+
+
+def test_spawn_managed_uses_injected_resources():
+    """B3：resources 注入 → 走 ResourceScope.task 托管（卸载自动清理）。"""
+    import asyncio
+
+    created = {}
+
+    class _FakeScope:
+        def task(self, coro, description):
+            created["description"] = description
+            return asyncio.create_task(coro)
+
+    async def _body():
+        async def _noop():
+            await asyncio.sleep(0)
+
+        mgr = get_manager()
+        mgr.resources = _FakeScope()
+        try:
+            task = mgr.spawn_managed(_noop(), "notice_flusher")
+            assert created["description"] == "notice_flusher"
+            assert isinstance(task, asyncio.Task)
+            task.cancel()
+        finally:
+            mgr.resources = None  # conftest 亦兜底归位
+
+    asyncio.run(_body())
+
+
+def test_spawn_managed_propagates_scope_error():
+    """B3 契约锁定（复审 C 发现的根源契约）：scope.task 抛异常（模拟
+    StaleContext/ResourceError）时 spawn_managed 原样传播，且
+    flusher_task 不被部分赋值（异常发生在赋值前，无半初始化状态）。"""
+    import asyncio
+
+    class _BrokenScope:
+        def task(self, coro, description):
+            coro.close()  # 宿主 resources.task 的 _check 失败行为（防泄漏）
+            raise RuntimeError("StaleContext: scope is closing")
+
+    async def _body():
+        import pytest
+
+        async def _noop():
+            await asyncio.sleep(0)
+
+        mgr = get_manager()
+        mgr.resources = _BrokenScope()
+        try:
+            with pytest.raises(RuntimeError, match="scope is closing"):
+                mgr.spawn_managed(_noop(), "notice_flusher")
+        finally:
+            mgr.resources = None  # conftest 亦兜底归位
+        # 异常传播后无残留任务引用（赋值未发生）
+        assert mgr.background_tasks == set()
+
+    asyncio.run(_body())

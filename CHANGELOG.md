@@ -1,6 +1,18 @@
 # 更新日志
 
 
+## 0.2.1（2026-11-18）
+
+三项 SDK 深化（作者拍板：A1 schema 手写 / B2 ToolContext 注入 / B3 task 托管；B1 流式 wait 明确不做）——全对内重构，对外 schema/行为零漂移。
+
+- **A1 schema 固化（schemas.py）**：8 工具 description + input_schema 从「register 时 agentscope 推断」切换为固化常量（v0.2.0 运行时推断结果原样固化，v0.1.11 盲测文案零漂移，additionalProperties=False 含内）——**运行时零 agentscope 私有依赖**，schema 不再「猜」。**schemas.py = 唯一正式 schema 来源**（LLM 可见，中频修改，改 schema 只改它）；docstring / Args 注解降级为代码注释（低频，不参与 schema 生成，**不做双向锚定**——作者拍板：双向对齐麻烦）；v0.1.9 短 id 提示锁定对象随之下迁（test_persistence.py 锁常量不再锁 docstring）；`show_tool_schema.py` 改造为常量导出器（--check 比对模式），tools_schema.json 快照升级为含 additionalProperties 的完整 LLM 可见形态
+- **B2 ToolContext 注入**：`plugin._wrap` 每次调用把 SDK ToolContext set 进 `utils._CALL_CTX` contextvar（finally reset）→ `get_current_context()` 优先读注入（agent_id=workspace_id、session_id 与内核 contextvar 同源——`_workspace.py` peek_current_agent_id 实锤），无注入（TestHost/直调）回落内核路径；**工具函数零改动**，13 处既有 mock 不受影响。⚠️ 缺口注记：ToolContext 无 user_id 字段，注入路径下 user_id 仍从内核 API 补齐（notice 唤醒四元组/spawn parent 簿记消费，公共面无对应物）
+- **B3 task 托管**：`manager.spawn_managed()`（resources 注入优先走 `ResourceScope.task`——卸载自动清理 + 异常兜底 + 完成后 Registration 自动回收无累积；未注入回落裸 create_task）——notifier/communicate 两处 flusher 创建点迁移；`_activate` 注入 `manager.resources`；`_shutdown_tasks` 手工清单保留兜底（custody.stop_task done→return 幂等实锤，双重清理安全）；消费者/监视协程不动（复审修复热点区）
+- 文档与清单（同日）：`qwenpaw_version.max` 2.9.0→2.99.0（防官方恢复上界检查后被窄区间拒载）；README 重写——使用者视角（官方工具对比表 / 8 工具一句话用途 / 4 个场景案例 / 短 id 与安装），删架构段与内部机制速览（内部原理归 DESIGN.md 与 CHANGELOG）
+- 测试：pytest **117 全绿**（112 + B2 三用例 + B3 两用例 + B3 异常传播契约用例，-1 test_schemas 双向锁定用例（作者拍板解耦）+ 短 id 锁定迁移至常量参数级检查；conftest reset 增加 resources 归位防线）；体检 50 findings = 40 private-import（运行时 27 全为 SDK 无公共对应物保留项 + tests 13 白盒访问）+ 10 unmanaged-resource，较 v0.2.0 基线 +2（utils 注入路径 user_id 补齐 import + test_utils 白盒访问 _CALL_CTX），性质不变
+- **四路对抗复审 + 动态测试（同日，作者拍板「全面复审确保无 bug」）**：A 路 schema 面（AST 键集合严格相等/快照零漂移/--check 实测）+ B 路 B2 注入链路（21 项动态断言：异常/取消/并发隔离/嵌套 token/热重载全部 PASS；workspace_id==agent_id 宿主源码实锤 + 10 消费点等价逐一核对）+ C 路 B3 托管生命周期（4 实验实锤双重清理无竞态/stop_task 三态幂等/异常传播+coro 关闭）+ D 路边界测试（46 项 schema 校验矩阵 + contextvar 并发 + 双重清理并发 + user_id 四路兜底 + --check 漂移检测三类篡改全 exit 1）。**零 HIGH**；复审修复 5 处：① MEDIUM 监视协程路径 on_turn_finished 补 try/except（B3 引入的卸载窗口抛出路径，与 submit.py 消费者防护对齐——C 路实验 B3b 实锤 watch task 带未处理异常死亡）② MEDIUM 短 id 锁定 blob → chat_id 参数级检查（消假绿路径）③ wait timeout anyOf 补 null（与 spawn 对齐，LLM 传 null 不再被 schema 拒——handler float(None) TypeError 本就回落 900）+ description 注明 null=用默认 ④ spawn_managed 异常传播契约用例（BrokenScope 锁定「原样抛出+无半初始化状态」）⑤ reset_manager 隐式契约注释。**不采纳注记**（记录在案）：communicate.action 无 enum（运行时拦截已清晰）、context_export output_path 软必填（既有设计与 communicate.text 同构）、flusher 正文终线兜底（内部已有宽 except，swap 段崩溃概率低，避免扩大改动面）、spawn_managed coro close 防御（宿主 resources.py:164-166 已实测 close，隐式契约注释代替）、B 路 LOW-1/2（理论边界/有界驻留）。四路一致结论：**可 commit**
+
+
 ## 0.2.0（2026-11-18）
 
 v2.3.0 SDK 迁移（作者拍板试点）：工具注册面换皮为公共 SDK，内部实现零改动。
@@ -18,7 +30,8 @@ v2.3.0 SDK 迁移（作者拍板试点）：工具注册面换皮为公共 SDK�
 - **体检基线**：`python -m qwenpaw.plugins.check` → 48 findings（38 private-import error + 10 unmanaged-resource warning）——private-import 全部为宿主内部 API 依赖（_submit_turn 照抄官方端点/console_push 气泡/MemorySpace/agentscope_msg_to_message 等，SDK 公共面无对应物，**换皮不换骨**设计注记）；加载器不跑 compliance，运行时不受影响；`--runtime` 被 `report.ok` 门禁挡住（error findings 存在即跳过）——故 TestHost 验证走测试文件
 - 测试：pytest **111 全绿**（104 原有零改动通过 + 7 TestHost 集成）；tools_schema.json 快照刷新（v0.1.9 旧文案 → v0.1.11 现行 + description 提取与运行时一致）
 - **真机热装验收（REPL 直调层，2026-11-18）**：热装 active/enabled=True；宿主内实锤 `instance.sdk_context = PluginContext`（loader.py:1794 SDK 分支生效，generation 3）；8/8 工具 ownership 正确登记（无 TestHost 观察到的 owner=None 警告）；REPL 直调 invoke 全链路 success（jsonschema→handler→ToolChunk 流式：running chunk 携正文 + success 收尾）；spawn 真提交成功——子会话 chat 创建 + `chat.meta["agent_tools"]` 持久化落盘（v0.1.8 特性在 SDK 版继续工作，文件级实锤）；wait/recv/stop/list_session 真机响应与文案全对（空正文防御分支/stop 序列/簿记终态「已完成（1）」）；子会话正文空系 REPL 无 contextvar 的 agent 路由特殊性（chats.json agent=None），非迁移回归——真实对话链路待新会话快照自然验收
-- 待办：新会话自然验收（对话内 spawn → 正文回收全链路）
+- 验收补记（同日）：新会话自然验收完成——spawn→wait 正文回收（「验收测试 OK」）/ list_session 簿记 / notice 全链路唤醒送达 / spawn_managed 托管路径实锤（task name 前缀 qwenpaw-plugin-agent-tools:direct_probe）/ 分裂窗口收敛（8/8 SDK descriptor，本会话绑定 gen4）
+- 待办：无（自然验收已闭环）
 
 
 ## 0.1.11（2026-11-18）

@@ -31,7 +31,9 @@ def _reset_singletons():
     from manager import get_manager
     from notifier import reset_notifier
 
-    get_manager().reset_manager()
+    m = get_manager()
+    m.resources = None  # B3 注入归位（防 fake ResourceScope 跨测试泄漏）
+    m.reset_manager()
     reset_notifier()
     yield
     if root not in sys.path:

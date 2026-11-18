@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""用 agentscope 的 _extract_input_schema 导出完整工具 schema。
+"""导出 8 工具完整 LLM 可见 schema（tools_schema.json 留档）。
 
-SDK 迁移后运行时链路：plugin.py register 时以 _extract_input_schema
-（parameters）+ _extract_func_description（short+long 全拼接）构造
-ToolSpec——本脚本输出与运行时 LLM 可见 schema 一致（additionalProperties
-=False 由 register 层补充，此处未含）。
+v0.2.1 起运行时 schema 来自 schemas.py（**唯一正式 schema 来源**）——
+本脚本从 _TOOL_SCHEMAS 导出与运行时 ToolSpec 完全一致的形态（含
+additionalProperties=False），覆盖写 tools_schema.json 快照。改 schema
+只改 schemas.py，改完跑本脚本刷新快照；docstring 是代码注释不参与
+schema 生成（作者拍板：不做双向锚定）。
+
+用法：python show_tool_schema.py [--check]
+  默认    导出覆盖 tools_schema.json
+  --check 只比对不写（快照漂移时 exit 1）
 """
 import json
 import os
@@ -12,54 +17,78 @@ import sys
 
 _root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _root)
-os.chdir(_root)
 
-from agentscope.tool._utils import _extract_func_description, _extract_input_schema
+from schemas import _TOOL_SCHEMAS
 
-from tools.communicate import agent_tools_communicate
-from tools.context_export import agent_tools_context_export
-from tools.context_read import agent_tools_context_read
-from tools.list_agent import agent_tools_list_agent
-from tools.list_session import agent_tools_list_session
-from tools.notice import agent_tools_notice
-from tools.spawn import agent_tools_spawn
-from tools.wait import agent_tools_wait
-
-
-def _extract_description(func) -> str:
-    """与运行时一致：agentscope _extract_func_description（短+长全拼接）。"""
-    return _extract_func_description(func.__doc__)
-
-
-tools = [
-    ("派生与会话列表", [agent_tools_spawn, agent_tools_list_agent, agent_tools_list_session]),
-    ("会话交互", [agent_tools_communicate, agent_tools_wait]),
-    ("通知", [agent_tools_notice]),
-    ("上下文", [agent_tools_context_read, agent_tools_context_export]),
+_ORDER = [
+    "agent_tools_spawn",
+    "agent_tools_list_agent",
+    "agent_tools_list_session",
+    "agent_tools_communicate",
+    "agent_tools_wait",
+    "agent_tools_notice",
+    "agent_tools_context_read",
+    "agent_tools_context_export",
 ]
 
-all_schemas = {}
+_CATEGORY = {
+    "agent_tools_spawn": "派生与会话列表",
+    "agent_tools_list_agent": "派生与会话列表",
+    "agent_tools_list_session": "派生与会话列表",
+    "agent_tools_communicate": "会话交互",
+    "agent_tools_wait": "会话交互",
+    "agent_tools_notice": "通知",
+    "agent_tools_context_read": "上下文",
+    "agent_tools_context_export": "上下文",
+}
 
-for category, fns in tools:
-    print(f'\n{"=" * 60}')
-    print(f'  {category}（{len(fns)} 个工具）')
-    print(f'{"=" * 60}')
-    for fn in fns:
-        schema = _extract_input_schema(fn)
-        desc = _extract_description(fn)
-        full = {
+
+def _build_snapshot():
+    """schemas.py 常量 → tools_schema.json 快照形态（OpenAI function-call）。"""
+    snapshot = {}
+    for name in _ORDER:
+        spec = _TOOL_SCHEMAS[name]
+        snapshot[name] = {
             "type": "function",
             "function": {
-                "name": fn.__name__,
-                "description": desc,
-                "parameters": schema,
+                "name": name,
+                "description": spec["description"],
+                "parameters": spec["input_schema"],
             },
         }
-        all_schemas[fn.__name__] = full
-        print(f'\n── {fn.__name__} ──')
-        print(json.dumps(full, indent=2, ensure_ascii=False))
+    return snapshot
 
-out_path = "tools_schema.json"
-with open(out_path, "w", encoding="utf-8") as f:
-    json.dump(all_schemas, f, indent=2, ensure_ascii=False)
-print(f'\n\n已保存到 {out_path}（{len(all_schemas)} 个工具）')
+
+def main():
+    snapshot = _build_snapshot()
+    check_only = "--check" in sys.argv
+    out_path = os.path.join(_root, "tools_schema.json")
+
+    existing = None
+    if os.path.exists(out_path):
+        with open(out_path, encoding="utf-8") as f:
+            existing = json.load(f)
+
+    if existing == snapshot:
+        print(f"✓ tools_schema.json 与 schemas.py 一致（{len(snapshot)} 个工具）")
+        return
+
+    if check_only:
+        print("✗ tools_schema.json 与 schemas.py 不一致——运行 python "
+              "show_tool_schema.py 刷新快照")
+        sys.exit(1)
+
+    for name in _ORDER:
+        print(f'\n{"=" * 60}')
+        print(f'  {_CATEGORY[name]} — {name}')
+        print(f'{"=" * 60}')
+        print(json.dumps(snapshot[name], indent=2, ensure_ascii=False))
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(snapshot, f, indent=2, ensure_ascii=False)
+    print(f'\n已保存到 tools_schema.json（{len(snapshot)} 个工具，'
+          '含 additionalProperties 完整形态）')
+
+
+if __name__ == "__main__":
+    main()

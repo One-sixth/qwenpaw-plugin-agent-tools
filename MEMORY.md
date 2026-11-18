@@ -2,7 +2,7 @@
 
 ## 一句话定位
 
-agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.1.11，2026-11-17 首发）。
+agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.1，2026-11-17 首发，v0.2.0 起 SDK 形态）。
 
 ## 关键档案
 
@@ -11,9 +11,10 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 - 架构与用法：见 `README.md`
 - 版本细节：见 `CHANGELOG.md`（每批次完整记录）
 
-## 当前状态（v0.1.11）
+## 当前状态（v0.2.1）
 
-- 测试 104 全绿（纯 mock + 真单例集成，无 qwenpaw 运行时依赖）；已热装服役
+- 测试 117 全绿（纯 mock + 真单例集成 + TestHost，无 qwenpaw 运行时依赖）；已热装服役；**自然验收闭环（2026-11-18）**——spawn→wait 正文回收 / notice 全链路唤醒 / B2 注入路径实战 / B3 托管 task name 前缀实锤 / 分裂窗口收敛（8/8 SDK descriptor 绑 gen4）
+- **SDK 深化三件套（v0.2.1，2026-11-18）**：① A1 schema 固化——8 工具 description/input_schema 从 agentscope 运行时推断切换 schemas.py 固化常量（v0.2.0 推断结果原样，盲测文案零漂移），**运行时零 agentscope 私有依赖**；**schemas.py = 唯一正式 schema 来源（LLM 可见）**，docstring 降级代码注释**不做双向锚定**（作者拍板：双向对齐麻烦），短 id 锁定对象下迁至常量（test_persistence.py），show_tool_schema.py 改常量导出器（--check 模式）+ 快照升级含 additionalProperties；② B2 ToolContext 注入——_wrap set/reset `utils._CALL_CTX`，get_current_context 优先读（agent_id=workspace_id 实锤同源），工具函数零改动；⚠️ ToolContext 无 user_id，注入路径 user_id 仍内核 API 补齐（公共面缺口）；③ B3 task 托管——manager.spawn_managed（resources.task 优先/裸 create_task 回落），两处 flusher 迁托管（Registration 自动回收无累积），_shutdown_tasks 保留兜底（stop_task done→return 幂等实锤），消费者/监视协程不动
 - **schema 瘦身（v0.1.11，2026-11-18）**：8 工具 docstring 按作者三诉求（省 token/易懂/不写内部原理）优化，LLM 可见 schema 1388→1095 字符（-21%）；删内部原理（WebUI/chats.json meta 恢复/版本号）+ 去术语（Scroll 驱逐→被压缩历史）+ 消「见上」断链（idx 并入 start 参数）+ notice 投递时机并入第一段；**盲测驱动**：3 个无上下文子 agent 纸面问答零试错全对，并抓回 5 微调（count 上限 50 数值/spawn 前台直接返回正文/notice 每回合触发/output_path 相对工作区/删「全量」歧义）。**意外发现**：知识库「\n\n 截断规则」已过时（agentscope 改 short+long 全拼接，docstring 全段可见），已勘误
 - **schema 短 id 可发现性（v0.1.9）**：5 个收 chat_id 的工具参数描述 + spawn 返回提示（_WAIT_HINT 第一现场）均注明「完整 UUID 或其第一段 8 位 hex 短 id」；回归锁定用例防丢失。模糊语言测试通过：无上下文子 agent 拿到 8 位 id（措辞无暗示）→ [tool_call] 实锤原样传参 → 「拿到什么传什么」是 LLM 自然直觉
 - **簿记持久化（v0.1.8 混合方案，真机验收通过）**：身份账挂 `chat.meta["agent_tools"]`（template/depth/parent 三元组/spawned_at，spawn 时一次写入，跟随宿主 chats.json 落盘）；resolve 短 id 无匹配时自动扫各 agent workspace 的 chats.json 回填（restored=True 轻量记录，created_at 从 spawned_at 还原，parent 链恢复→防误用祖先链重启后可用）；回填即缓存。易变账（turns/queues/active/notices）留内存不持久化。**meta 上线前的存量 spawn 会话无身份标牌不可恢复**；v0.1.8 起 spawn 的新会话均有
@@ -41,6 +42,7 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 | 0.1.10 | 防误用祖先链 gap 修复（通知回合反向 send 测试发现）：check_misuse 增 target_agent_id 显式参数（locate 直传，主会话不在簿记反查空串的 fail-open 缺口堵死）；notice 回合放行为零代码天然例外；三态全景真机闭环；104 绿（详见 CHANGELOG 0.1.10） |
 | 0.1.11 | schema 瘦身（2026-11-18，作者拍板）：8 工具 docstring 1388→1095 字符（-21%）——删内部原理/去 Scroll 术语/消见上断链；盲测驱动（3 无上下文子 agent 零试错全对 + 抓回 5 微调）；意外发现知识库「\n\n 截断规则」已过时（agentscope 改 short+long 全拼接）并勘误；104 绿（详见 CHANGELOG 0.1.11） |
 | 0.2.0 | v2.3.0 SDK 迁移试点（2026-11-18，作者拍板，分支 sdk-migration）：注册面换皮 PluginContext.register_tool + ToolSpec；schema 动态推断（agentscope 推断函数）v0.1.11 文案零漂移 + additionalProperties=False；make_error/make_success → SDK ToolResult（字段兼容 104 测试透明）；生命周期实锤——资源创建必须 on_activate（register 碰 resources 报 ResourceError）；TestHost 集成测试 +7 + 宿主双副作用实锤（load 移 sys.path 条目 / close 清同目录扁平模块 → 快照恢复修复）；体检基线 48 findings（38 private-import = 换皮不换骨预期）；111 绿（详见 CHANGELOG 0.2.0） |
+| 0.2.1 | SDK 深化三件套（2026-11-18，作者拍板）：A1 schema 固化 schemas.py（唯一正式 schema 来源，运行时零 agentscope 依赖；docstring 解耦不做双向锚定——双向锁定用例即建即撤，短 id 锁定下迁至常量）+ B2 ToolContext 注入 _CALL_CTX（agent_id/session_id 走公共面，user_id 公共面缺口保留内核）+ B3 flusher 迁 resources.task 托管（spawn_managed 注入优先/回落，Registration 自动回收）；B1 流式明确不做；四路对抗复审+动态测试（零 HIGH，5 处修复：监视协程 on_turn_finished 补防护/短 id 参数级锁/wait timeout null/异常传播契约用例/reset 注释），117 绿（详见 CHANGELOG 0.2.1） |
 
 
 ## 设计决策要点（拍板记录）

@@ -52,7 +52,8 @@
         "required": [
           "task"
         ],
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       }
     }
   },
@@ -63,7 +64,8 @@
       "description": "查看当前所有可用 agent（id/名字/启用状态/描述）。spawn 的 template 传这里的 id 字段（非显示名）。",
       "parameters": {
         "properties": {},
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       }
     }
   },
@@ -74,7 +76,8 @@
       "description": "列出本插件 spawn 的全部会话（状态/chat_id/最新回合/通知注册 🔔），用于找回 chat_id；人工会话不在列。",
       "parameters": {
         "properties": {},
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       }
     }
   },
@@ -103,7 +106,8 @@
         "required": [
           "chat_id"
         ],
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       }
     }
   },
@@ -128,16 +132,20 @@
               },
               {
                 "type": "string"
+              },
+              {
+                "type": "null"
               }
             ],
             "default": 900,
-            "description": "等待上限（秒），默认 900；超时可续等。"
+            "description": "等待上限（秒），默认 900；超时可续等。null=用默认。"
           }
         },
         "required": [
           "chat_id"
         ],
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       }
     }
   },
@@ -171,7 +179,8 @@
         "required": [
           "chat_id"
         ],
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       }
     }
   },
@@ -282,7 +291,8 @@
             "description": "包含被压缩的历史轮。"
           }
         },
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       }
     }
   },
@@ -378,7 +388,8 @@
             "description": "包含被压缩的历史轮。"
           }
         },
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       }
     }
   }

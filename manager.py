@@ -11,6 +11,7 @@
 提供 reset_manager() / inject_spawn_record() 测试钩子与 TTL 惰性清理。
 """
 
+import asyncio
 import logging
 from collections import deque
 from dataclasses import dataclass, field
@@ -161,11 +162,20 @@ class AgentToolsManager:
         self.active_sessions: Dict[Tuple[str, str], ActiveEntry] = {}
         self.notice_records: Dict[str, NoticeRecord] = {}   # chat_id → record
         self.background_tasks: "set" = set()  # 消费者/监视协程登记（卸载钩子统一取消）
+        self.resources = None  # SDK ResourceScope（plugin._activate 注入；None=回落裸 create_task）
 
     def register_task(self, task) -> None:
         """登记后台任务（消费者/监视协程），完成时自动移除（防热重载孤儿）。"""
         self.background_tasks.add(task)
         task.add_done_callback(self.background_tasks.discard)
+
+    def spawn_managed(self, coro, description: str):
+        """创建后台任务：SDK resources.task 托管优先（卸载自动清理 +
+        异常兜底记录，任务完成 Registration 自动回收）；未注入（测试 /
+        直调工具函数）回落裸 create_task，行为与旧路径一致。"""
+        if self.resources is not None:
+            return self.resources.task(coro, description)
+        return asyncio.create_task(coro)
 
     def cancel_all_tasks(self) -> int:
         """取消全部登记任务（卸载钩子用）。返回取消数。"""
@@ -368,7 +378,12 @@ class AgentToolsManager:
     # ── 测试钩子 ──
 
     def reset_manager(self) -> None:
-        """清空全部簿记（conftest autouse fixture 用）。"""
+        """清空全部簿记（conftest autouse fixture 用）。
+
+        resources/background_tasks 有意不清——生产卸载后插件模块被宿主
+        重建（loader pop 模块），新单例 resources=None 由 _activate 重新
+        注入；测试侧由 conftest 显式归位 m.resources=None。
+        """
         self.spawn_records.clear()
         self.session_queues.clear()
         self.active_sessions.clear()

@@ -273,8 +273,9 @@ def _ensure_flusher(workspace, target) -> None:
     task = queue.flusher_task
     if task is not None and not task.done():
         return
-    queue.flusher_task = asyncio.create_task(
+    queue.flusher_task = manager.spawn_managed(
         _flusher(workspace, target),
+        "queue_flusher",
     )
 
 

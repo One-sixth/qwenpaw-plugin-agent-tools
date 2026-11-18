@@ -225,22 +225,20 @@ def test_restore_missing_chats_json(tmp_path, monkeypatch):
     assert restore_ledger_from_chats(get_manager()) == 0
 
 
-def test_tool_docstrings_mention_short_id():
-    """schema 回归锁定：收 chat_id 的 5 个工具参数描述 + spawn 返回提示
-    必须提及短 id 支持（2026-11-17 作者拍板——无上下文调用方的可发现性，
-    防未来改动丢失提示）。"""
-    from tools.communicate import agent_tools_communicate
-    from tools.context_export import agent_tools_context_export
-    from tools.context_read import agent_tools_context_read
-    from tools.notice import agent_tools_notice
-    from tools.spawn import agent_tools_spawn, _WAIT_HINT
-    from tools.wait import agent_tools_wait
+def test_tool_schemas_mention_short_id():
+    """schema 回归锁定（v0.2.1 起锁 schemas.py 正式常量，docstring 已解耦
+    不再锁）：收 chat_id 的 5 个工具参数描述 + spawn 返回提示必须提及短 id
+    支持（2026-11-17 作者拍板——无上下文调用方的可发现性，防未来改动丢失
+    提示）。"""
+    from schemas import _TOOL_SCHEMAS
+    from tools.spawn import _WAIT_HINT
 
-    for fn in (agent_tools_wait, agent_tools_communicate,
-               agent_tools_notice):
-        assert "8 位 hex 短 id" in fn.__doc__, f"{fn.__name__} 缺短 id 提示"
-    for fn in (agent_tools_context_read, agent_tools_context_export):
-        assert "8 位 hex 短 id" in fn.__doc__, f"{fn.__name__} 缺短 id 提示"
+    for tool in ("agent_tools_wait", "agent_tools_communicate",
+                 "agent_tools_notice", "agent_tools_context_read",
+                 "agent_tools_context_export"):
+        desc = (_TOOL_SCHEMAS[tool]["input_schema"]["properties"]
+                .get("chat_id", {}).get("description", ""))
+        assert "8 位 hex 短 id" in desc, f"{tool} chat_id 参数描述缺短 id 提示"
     assert "8 位 hex 简写" in _WAIT_HINT
     # spawn 成功文案实际包含 _WAIT_HINT（背景路径拼接）
     assert "CHAT_ID" in _WAIT_HINT

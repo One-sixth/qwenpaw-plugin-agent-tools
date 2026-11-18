@@ -7,6 +7,7 @@
 
 import logging
 import re
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Iterable, Optional, Tuple
 
@@ -34,14 +35,33 @@ SESSION_ID_RES = (
 
 # ── 会话上下文定位 ────────────────────────────────────────
 
+# SDK ToolContext 注入点：plugin._wrap 每次工具调用 set/reset；
+# get_current_context 优先读它（agent_id=workspace_id、session_id 与内核
+# contextvar 同源，qwenpaw.plugins 公共面）。user_id 无公共对应物，
+# 注入路径下仍从内核 API 补齐。
+_CALL_CTX: ContextVar = ContextVar("agent_tools_call_ctx", default=None)
+
 
 def get_current_context() -> Tuple[str, str, str]:
     """获取当前工具调用的 (agent_id, user_id, session_id) 上下文。
 
-    读取 QwenPaw 内核 contextvar（由 ContextVarsSetupHook 每次请求注入）。
-    取不到时回落为 "default"。身份前缀、notice 唤醒身份、防误用判定、
-    context_read 当前会话定位全部依赖本函数。
+    优先读 SDK ToolContext 注入（_CALL_CTX）；无注入（TestHost / 直调
+    工具函数）时读 QwenPaw 内核 contextvar（由 ContextVarsSetupHook 每次
+    请求注入）。取不到时回落为 "default"。身份前缀、notice 唤醒身份、
+    防误用判定、context_read 当前会话定位全部依赖本函数。
     """
+    ctx = _CALL_CTX.get()
+    if ctx is not None:
+        agent_id = str(ctx.workspace_id or "default")
+        session_id = str(ctx.session_id or "default")
+        user_id = "default"
+        try:
+            from qwenpaw.app.agent_context import get_current_user_id
+
+            user_id = str(get_current_user_id() or "default")
+        except Exception:  # noqa: BLE001
+            pass
+        return agent_id, user_id, session_id
     try:
         from qwenpaw.app.agent_context import (
             get_current_agent_id,

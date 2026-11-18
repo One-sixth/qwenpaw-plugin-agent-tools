@@ -191,3 +191,54 @@ def test_resolve_chat_id_input_integration():
     cid, err, _ = resolve_chat_id_input("sub-1a2b3c4d")
     assert not cid and "session_id 形态" in err
     mgr.reset_manager()
+
+
+# ── B2：ToolContext 注入（v0.2.1） ──────────────────────
+
+
+class _FakeToolCtx:
+    """最小 ToolContext 替身：只带 get_current_context 消费的字段。"""
+
+    def __init__(self, workspace_id="demo-agent", session_id="1795000000000-ab12cd"):
+        self.workspace_id = workspace_id
+        self.session_id = session_id
+
+
+def test_get_current_context_prefers_injected_toolcontext(monkeypatch):
+    """B2：_CALL_CTX 注入优先——agent_id=workspace_id / session_id 走
+    ToolContext 公共面（与内核 contextvar 同源），user_id 无公共对应物
+    仍从内核 API 补齐。"""
+    import utils as utils_mod
+
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_user_id", lambda: "u-42",
+    )
+    token = utils_mod._CALL_CTX.set(_FakeToolCtx())
+    try:
+        got = utils_mod.get_current_context()
+    finally:
+        utils_mod._CALL_CTX.reset(token)
+    assert got == ("demo-agent", "u-42", "1795000000000-ab12cd")
+
+
+def test_get_current_context_injected_empty_normalizes_default(monkeypatch):
+    """B2：注入对象字段为空 → 归一 default（与内核路径 or "default" 一致）。"""
+    import utils as utils_mod
+
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_user_id", lambda: None,
+    )
+    token = utils_mod._CALL_CTX.set(_FakeToolCtx(workspace_id="", session_id=None))
+    try:
+        got = utils_mod.get_current_context()
+    finally:
+        utils_mod._CALL_CTX.reset(token)
+    assert got == ("default", "default", "default")
+
+
+def test_get_current_context_without_injection_returns_str_tuple():
+    """B2：无注入（直调工具函数 / 纯 mock 测试）→ 原内核路径不变。"""
+    import utils as utils_mod
+
+    agent_id, user_id, session_id = utils_mod.get_current_context()
+    assert all(isinstance(x, str) for x in (agent_id, user_id, session_id))
