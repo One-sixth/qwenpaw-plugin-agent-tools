@@ -19,6 +19,7 @@ try:
         locate_chat,
         make_error,
         make_success,
+        resolve_workspace_path,
     )
     from .common import check_chat_id
 except ImportError:  # 兼容 pytest 直接以项目根导入
@@ -36,6 +37,7 @@ except ImportError:  # 兼容 pytest 直接以项目根导入
         locate_chat,
         make_error,
         make_success,
+        resolve_workspace_path,
     )
     from tools.common import check_chat_id
 
@@ -43,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_PATH_ERROR = (
     "ERROR: output_path 必填（导出 Markdown 路径）。"
-    "建议写 <workspace>\\memory\\context_export_<chat_id前8位>.md。"
+    "相对路径挂工具基准目录（项目目录→agent 工作区），"
+    "建议写 memory\\context_export_<chat_id前8位>.md。"
 )
 
 
@@ -59,7 +62,8 @@ async def agent_tools_context_export(
 
     Args:
         chat_id: 目标会话 id（完整 UUID 或其第一段 8 位 hex 短 id）；不填=当前会话。
-        output_path: 导出 Markdown 路径（必填，相对工作区）。
+        output_path: 导出 Markdown 路径（必填）；相对路径挂工具
+            基准目录（项目目录→agent 工作区），成功回显绝对路径。
         include_think: 包含思考块。
         include_tool: 包含工具调用与结果块。
         include_monologue: 包含自言自语块。
@@ -133,14 +137,17 @@ async def agent_tools_context_export(
             sections.extend(render_evicted_row(row, think, tool))
     content = assemble_markdown(sections)
 
-    out = Path(output_path)
+    # 相对路径挂工具基准目录（内核 get_tool_base_dir 三级回落；
+    # 旧版 Path(output_path) 挂宿主进程 cwd → 文件落 miniconda Scripts/
+    # 「消失」，v0.2.2 修复）
+    out = Path(resolve_workspace_path(output_path))
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
         return make_error("导出上下文", f"写入失败：{exc!r}")
     return make_success(
-        f"已导出：{out}（可见区 {len(turns)} 轮"
+        f"已导出：{out}（绝对路径；可见区 {len(turns)} 轮"
         f"{f' + 驱逐 {len(evicted)} 轮' if evicted else ''}，"
         f"{len(content)} 字符）"
     )

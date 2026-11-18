@@ -1028,3 +1028,24 @@ def test_misuse_explicit_agent_off_chain(monkeypatch):
     get_manager().register_active("child", "sub-m0000001", "chat-x",
                                   parent=("default", "main-1"))
     assert asyncio.run(check_misuse("sib-1", target_agent_id="child")) is None
+
+
+def test_export_relative_path_resolves_base_dir(monkeypatch, tmp_path):
+    """相对路径挂工具基准目录（v0.2.2 修复：旧版 Path(output_path)
+    挂宿主进程 cwd，文件落 miniconda Scripts/「消失」）；
+    成功消息回显绝对路径。"""
+    from tools.context_export import agent_tools_context_export
+
+    _patch_export(monkeypatch, evicted_count=0, msgs=None)
+    monkeypatch.setattr(utils_mod, "get_workspace_dir",
+                        lambda: str(tmp_path))
+
+    rel = "memory/tmp_export_rel.md"
+    chunk = asyncio.run(agent_tools_context_export(
+        chat_id="chat-exp", output_path=rel,
+    ))
+    text = _chunk_text(chunk)
+    expected = tmp_path / "memory" / "tmp_export_rel.md"
+    assert expected.exists(), f"相对路径未挂基准目录落盘；消息={text}"
+    assert str(expected) in text, f"成功消息未回显绝对路径：{text}"
+    assert "绝对路径" in text, text

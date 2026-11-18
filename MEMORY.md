@@ -2,7 +2,7 @@
 
 ## 一句话定位
 
-agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.1，2026-11-17 首发，v0.2.0 起 SDK 形态）。
+agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.2，2026-11-17 首发，v0.2.0 起 SDK 形态）。
 
 ## 关键档案
 
@@ -11,9 +11,10 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 - 架构与用法：见 `README.md`
 - 版本细节：见 `CHANGELOG.md`（每批次完整记录）
 
-## 当前状态（v0.2.1）
+## 当前状态（v0.2.2）
 
-- 测试 117 全绿（纯 mock + 真单例集成 + TestHost，无 qwenpaw 运行时依赖）；已热装服役；**自然验收闭环（2026-11-18）**——spawn→wait 正文回收 / notice 全链路唤醒 / B2 注入路径实战 / B3 托管 task name 前缀实锤 / 分裂窗口收敛（8/8 SDK descriptor 绑 gen4）
+- **context_export 相对路径修复（v0.2.2，2026-11-18）**：`Path(output_path)` 旧挂宿主进程 cwd（实测落 miniconda Scripts/，文件「消失」）→ utils 新增 `get_workspace_dir()`（内核 `qwenpaw.config.context.get_tool_base_dir` 三级回落「项目目录→agent 工作区→WORKING_DIR」，无 qwenpaw 回落空串；file-tools v1.8.3 / process-tools v0.6.8 同款 wrapper）+ `resolve_workspace_path()`（相对挂基准、绝对/`~` 照用，纯字符串运算）；成功消息回显绝对路径；schema 描述同步（schemas.py 唯一来源 → show_tool_schema.py 快照重生成）；测试 120 全绿（+3：相对挂基准落盘/消息含绝对路径集成 + resolve 两单元）；宿主内实测（internal-debug REPL）：回合外无 contextvar 回落 WORKING_DIR 而非宿主 cwd，回合内与 file-tools 27 工具同语义
+- 测试 120 全绿（纯 mock + 真单例集成 + TestHost，无 qwenpaw 运行时依赖）；已热装服役；**自然验收闭环（2026-11-18）**——spawn→wait 正文回收 / notice 全链路唤醒 / B2 注入路径实战 / B3 托管 task name 前缀实锤 / 分裂窗口收敛（8/8 SDK descriptor 绑 gen4）
 - **SDK 深化三件套（v0.2.1，2026-11-18）**：① A1 schema 固化——8 工具 description/input_schema 从 agentscope 运行时推断切换 schemas.py 固化常量（v0.2.0 推断结果原样，盲测文案零漂移），**运行时零 agentscope 私有依赖**；**schemas.py = 唯一正式 schema 来源（LLM 可见）**，docstring 降级代码注释**不做双向锚定**（作者拍板：双向对齐麻烦），短 id 锁定对象下迁至常量（test_persistence.py），show_tool_schema.py 改常量导出器（--check 模式）+ 快照升级含 additionalProperties；② B2 ToolContext 注入——_wrap set/reset `utils._CALL_CTX`，get_current_context 优先读（agent_id=workspace_id 实锤同源），工具函数零改动；⚠️ ToolContext 无 user_id，注入路径 user_id 仍内核 API 补齐（公共面缺口）；③ B3 task 托管——manager.spawn_managed（resources.task 优先/裸 create_task 回落），两处 flusher 迁托管（Registration 自动回收无累积），_shutdown_tasks 保留兜底（stop_task done→return 幂等实锤），消费者/监视协程不动
 - **schema 瘦身（v0.1.11，2026-11-18）**：8 工具 docstring 按作者三诉求（省 token/易懂/不写内部原理）优化，LLM 可见 schema 1388→1095 字符（-21%）；删内部原理（WebUI/chats.json meta 恢复/版本号）+ 去术语（Scroll 驱逐→被压缩历史）+ 消「见上」断链（idx 并入 start 参数）+ notice 投递时机并入第一段；**盲测驱动**：3 个无上下文子 agent 纸面问答零试错全对，并抓回 5 微调（count 上限 50 数值/spawn 前台直接返回正文/notice 每回合触发/output_path 相对工作区/删「全量」歧义）。**意外发现**：知识库「\n\n 截断规则」已过时（agentscope 改 short+long 全拼接，docstring 全段可见），已勘误
 - **schema 短 id 可发现性（v0.1.9）**：5 个收 chat_id 的工具参数描述 + spawn 返回提示（_WAIT_HINT 第一现场）均注明「完整 UUID 或其第一段 8 位 hex 短 id」；回归锁定用例防丢失。模糊语言测试通过：无上下文子 agent 拿到 8 位 id（措辞无暗示）→ [tool_call] 实锤原样传参 → 「拿到什么传什么」是 LLM 自然直觉

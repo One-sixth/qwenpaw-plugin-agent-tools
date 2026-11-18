@@ -242,3 +242,27 @@ def test_get_current_context_without_injection_returns_str_tuple():
 
     agent_id, user_id, session_id = utils_mod.get_current_context()
     assert all(isinstance(x, str) for x in (agent_id, user_id, session_id))
+
+
+
+# ── resolve_workspace_path / get_workspace_dir（v0.2.2 导出路径修复） ──
+
+
+def test_resolve_workspace_path_relative_uses_base(monkeypatch, tmp_path):
+    """相对路径挂基准目录（get_tool_base_dir 三级回落 wrapper）。"""
+    import utils as u
+
+    monkeypatch.setattr(u, "get_workspace_dir", lambda: str(tmp_path))
+    got = u.resolve_workspace_path("memory/export.md")
+    assert got == str(tmp_path / "memory" / "export.md")
+
+
+def test_resolve_workspace_path_absolute_untouched(monkeypatch):
+    """绝对路径照用，不挂基准目录（normpath 归一即可）。"""
+    import os
+
+    import utils as u
+
+    monkeypatch.setattr(u, "get_workspace_dir", lambda: r"D:\base")
+    abs_path = os.path.join(os.getcwd(), "somewhere", "out.md")
+    assert u.resolve_workspace_path(abs_path) == os.path.normpath(abs_path)

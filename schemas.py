@@ -311,7 +311,7 @@ AGENT_TOOLS_CONTEXT_EXPORT = {
                     }
                 ],
                 "default": None,
-                "description": '导出 Markdown 路径（必填，相对工作区）。'
+                "description": '导出 Markdown 路径（必填）；相对路径挂工具基准目录（项目目录→agent 工作区），成功回显绝对路径。'
             },
             "include_think": {
                 "anyOf": [

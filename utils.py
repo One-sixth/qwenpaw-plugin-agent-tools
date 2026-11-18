@@ -6,6 +6,7 @@
 """
 
 import logging
+import os
 import re
 from contextvars import ContextVar
 from datetime import datetime
@@ -89,6 +90,41 @@ def current_channel() -> str:
     except Exception:  # noqa: BLE001
         return "console"
 
+# ── 路径基准（context_export 导出落盘用；file-tools v1.8.3 同款） ──
+
+
+def get_workspace_dir() -> str:
+    """工具相对路径的基准目录（内核 get_tool_base_dir 三级回落）。
+
+    qwenpaw.config.context.get_tool_base_dir 每回合由 ContextVarsSetupHook
+    注入 ContextVar，解析优先级「项目目录（聊天界面绑定）→ agent 工作区 →
+    全局 WORKING_DIR」，与内置 file/shell 工具语义一致。无 qwenpaw 环境
+    （pytest 直跑 / 独立运行）回落空串。
+    """
+    try:
+        from qwenpaw.config.context import get_tool_base_dir
+
+        return str(get_tool_base_dir())
+    except Exception:  # noqa: BLE001  无宿主环境回落空串
+        return ""
+
+
+def resolve_workspace_path(path: str) -> str:
+    """把用户传入的输出路径标准化为绝对路径。
+
+    相对路径挂 get_workspace_dir() 基准；绝对路径与 ~ 开头路径
+    expanduser 后照用。normpath/abspath 均为纯字符串运算（不碰
+    文件系统、无网络盘阻塞风险），写盘由调用方负责。
+    """
+    expanded = os.path.expanduser(str(path))
+    if not os.path.isabs(expanded):
+        base = get_workspace_dir()
+        if base:
+            expanded = os.path.join(base, expanded)
+    return os.path.normpath(os.path.abspath(expanded))
+
+
+# ── 工具结果封装（SDK ToolResult） ────────────────────────
 
 # ── 工具结果封装（SDK ToolResult） ────────────────────────
 
