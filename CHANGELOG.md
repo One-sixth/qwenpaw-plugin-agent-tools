@@ -8,7 +8,7 @@ context_export 导出路径修复（作者另一会话实测发现）。
 - **成功消息回显绝对路径**：`已导出：…（绝对路径；可见区 N 轮…）`——调用方不再需要拼路径找文件
 - **文档面**：schemas.py（唯一 schema 来源）output_path description 改「相对路径挂工具基准目录（项目目录→agent 工作区）」；tools_schema.json 快照重生成（--check 实测一致）；docstring 与 OUTPUT_PATH_ERROR 提示同步
 - 测试：pytest **120 全绿**（117 + 3：export 相对路径挂基准目录落盘 + 成功消息含绝对路径（集成，test_regression_fixes）；resolve_workspace_path 相对挂基准/绝对照用（单元，test_utils））；宿主进程内实测（internal-debug REPL）：回合外无 contextvar 时 get_tool_base_dir 回落 WORKING_DIR（`~/.qwenpaw`）而非宿主 cwd——极端路径也不再「消失」，回合内走 contextvar 与 file-tools 27 工具同语义
-- 真机验收注记：热装后新会话实测导出一次即闭环（热装不刷新当前会话，工具绑定是启动时快照）
+- 真机验收：另一会话实测通过（作者确认修好）——相对路径落基准目录、成功消息回显绝对路径（热装不刷新旧会话，工具绑定是启动时快照）
 
 
 
