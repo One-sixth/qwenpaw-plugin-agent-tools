@@ -30,7 +30,7 @@ def _patch(monkeypatch, statuses=("idle",), submit_queue_mode="immediate"):
 
         book = SpawnRecord(
             agent_id="child", session_id="sub-t0000001", user_id="u",
-            channel="console", chat_id=cid, template="child", depth=1,
+            channel="console", chat_id=cid, depth=1,
             parent=None, spawn_request_context={"k": "v"}, turns=[],
         )
         get_manager().spawn_records[cid] = book

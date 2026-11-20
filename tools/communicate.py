@@ -26,11 +26,15 @@ try:
     )
     from ..utils import (
         build_identity_prefix,
+        get_agent_workspace_dir,
         get_current_context,
         locate_chat,
         make_error,
         make_success,
         resolve_parent_chat_id,
+        save_truncated_body,
+        truncate_tail,
+        truncate_text,
     )
     from .common import check_chat_id, check_misuse
 except ImportError:  # 兼容 pytest 直接以项目根导入
@@ -51,11 +55,15 @@ except ImportError:  # 兼容 pytest 直接以项目根导入
     )
     from utils import (
         build_identity_prefix,
+        get_agent_workspace_dir,
         get_current_context,
         locate_chat,
         make_error,
         make_success,
         resolve_parent_chat_id,
+        save_truncated_body,
+        truncate_tail,
+        truncate_text,
     )
     from tools.common import check_chat_id, check_misuse
 
@@ -74,6 +82,10 @@ RECV_EMPTY = (
     "无正文可读：最新一轮尚无正文（可能仍在思考/调用工具）。"
     "可稍后 recv 再读、wait 等完成、context_read 读历史轮。"
 )
+
+# recv 正文截断上限（2026-11-20 作者拍板：与 wait 同档 9000；
+# 超限全文落盘调用方 workspace tool_results，尾部文件指引续读）
+RECV_BODY_LIMIT = 9000
 
 
 async def agent_tools_communicate(
@@ -239,7 +251,7 @@ async def _submit_send(workspace, target, final_text: str):
         book = SpawnRecord(
             agent_id=target.agent_id, session_id=target.session_id,
             user_id=target.user_id, channel=target.channel,
-            chat_id=target.chat_id, template=target.agent_id, depth=0,
+            chat_id=target.chat_id, depth=0,
             parent=None, spawn_request_context=None, turns=[turn],
         )
         manager.register_spawn(book)
@@ -446,7 +458,7 @@ async def _flusher(workspace, target) -> None:
             book = SpawnRecord(
                 agent_id=target.agent_id, session_id=target.session_id,
                 user_id=target.user_id, channel=target.channel,
-                chat_id=target.chat_id, template=target.agent_id, depth=0,
+                chat_id=target.chat_id, depth=0,
                 parent=pending.parent, spawn_request_context=None,
                 turns=[turn],
             )
@@ -476,7 +488,11 @@ async def _flusher(workspace, target) -> None:
 
 
 async def _do_recv(workspace, target):
-    """读最新一轮全部正文（最终输出 + 自言自语；不含思考与工具调用）。"""
+    """读最新一轮全部正文（最终输出 + 自言自语；不含思考与工具调用）。
+
+    正文超 RECV_BODY_LIMIT → 全文落盘调用方 workspace tool_results
+    （QwenPaw 大 tool_result 同款机制），尾部文件指引续读。
+    """
     try:
         body, monologues = await read_latest_turn_sections(workspace, target)
     except Exception as exc:  # noqa: BLE001
@@ -488,7 +504,16 @@ async def _do_recv(workspace, target):
         sections.append("—— 最终输出 ——\n" + body)
     if not sections:
         return make_success(RECV_EMPTY)
-    return make_success(f"会话 {target.chat_id} 最新一轮：\n" + "\n\n".join(sections))
+    text = f"会话 {target.chat_id} 最新一轮：\n" + "\n\n".join(sections)
+    if len(text) <= RECV_BODY_LIMIT:
+        return make_success(text)
+    # 超限：全文落盘调用方会话 workspace tool_results（QwenPaw 同款）
+    ws_dir = get_agent_workspace_dir(get_current_context()[0])
+    file_path = save_truncated_body(text, ws_dir)
+    tail = truncate_tail(RECV_BODY_LIMIT, file_path,
+                         text[:RECV_BODY_LIMIT].count("\n") + 1,
+                         text.count("\n") + 1)
+    return make_success(truncate_text(text, RECV_BODY_LIMIT, tail=tail))
 
 
 # ── stop ──

@@ -2,7 +2,7 @@
 
 ## 一句话定位
 
-agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.3，2026-11-17 首发，v0.2.0 起 SDK 形态）。
+agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.5，2026-11-17 首发，v0.2.0 起 SDK 形态）。
 
 ## 关键档案
 
@@ -11,8 +11,14 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 - 架构与用法：见 `README.md`
 - 版本细节：见 `CHANGELOG.md`（每批次完整记录）
 
-## 当前状态（v0.2.3）
+## 当前状态（v0.2.5）
 
+- **✅ 部署状态（2026-11-20，历史）**：当时仓库 `plugin.json` = 0.2.4、已热装 v0.2.4 且本会话实机验收通过——zip 用 `git ls-files -z` 导无顶层目录（45 文件，`D:\Temp\qwenpaw-plugin-agent-tools-0.2.4.zip`）→ `qwenpaw plugin install --force`（`active; enabled=True`），装机目录 `C:\Users\<用户>\.qwenpaw\plugins\qwenpaw-plugin-agent-tools` 实测 version=0.2.4、`tools/spawn.py` template 引用=0；实机验证：spawn 参数已是 `agent_id`、传 `template=` 被 `Additional properties are not allowed` 硬拒、`list_agent` 表头 `[agent_id ｜ name ｜ enabled ｜ description]`、`list_session` 显示 `agent_id=default`、`wait` 超 9000 截断并全文落盘调用方 workspace `tool_results\agent-tools-75791b5f….txt`（60 行完整、尾部指引「从第 44 行开始续读」准确）；**热装后下一回合即生效、无需新会话**（工具每回合从注册表装配，不是会话级持久快照）；**未 commit（作者自行提交）**
+- **多会话 wait/notice（v0.2.5，2026-11-20，作者拍板）**：`chat_id` 支持单个或多个（真 list / JSON 字符串数组均容错，`normalize_chat_id_list` 去重保序，参照 tool-wait_agent_task）；wait 多 id = 先整体预校验、任一不存在提前失败全都不等、全部有效则并发等待全部完成才返回（每块 `### 会话 {cid}`、独立截断落盘）；notice 多 id = 部分成功、每块 `chat_id=<完整id>` + 5 句文案（完成通知已注册/完成通知已取消/目标会话未注册完成通知/目标会话未找到，注册失败/目标会话未找到，取消失败，兜底/幂等/撤回不单写）；单会话仍走原逻辑（wait 逐字节不变、notice 用 5 句文案）；schema `chat_id` → anyOf string 或 array；全失败保持块格式（is_error=True）、取消先校验存在性且无待发条数、uuid 只在 chat_id 行出现一次、wait/notice 均单块异常隔离；167 测试全绿（+36）
+- **复审遗留（已处置）**：① 历史 `tests/test_regression_fixes.py` 含 `C:\Users\<用户>\...`——作者判定不算泄露，不处置（working tree 已改 tempfile，仅为可移植性）；② `tests/test_multi_chat_id.py` 已入库（29 用例）；③ 0.2.4 + 0.2.5 已整批提交
+- **✅ 部署状态（2026-11-20 更新）**：仓库 `plugin.json` = 0.2.5，**已热装 v0.2.5**（zip `D:\Temp\qwenpaw-plugin-agent-tools-0.2.5.zip` 45 文件 → `qwenpaw plugin install --force` active/enabled；装机实测 version=0.2.5、wait/notice 含 `normalize_chat_id_list`、wait 含 `return_exceptions`、schema `chat_id` anyOf string|array）→ **已 commit（作者授权；0.2.4+0.2.5 整批）**；热装下一回合即生效，本会话可直接实机验证多会话
+- **截断全文落盘 + 上限分档（v0.2.4，2026-11-20，作者拍板）**：notice/wait/recv 正文超上限（分档：notice 4000 聚合多通知收小 / wait 9000 单目标放宽 / recv 9000 与 wait 同档——recv 此前无截断全量返回）→ 全文写入**读尾部的那个会话**的 workspace `tool_results` 目录（复用宿主 `save_text_output`，命名 `agent-tools-{uuid}.txt`，子目录名读 agent.json `tool_results_cache` 配置与宿主对齐），尾部改文件指引 `<<<TRUNCATED>>>正文已截断（上限 {limit} 字符）。全文：{path}（共 N 行），从第 {M} 行开始续读（包含被截断的那行）`（不点名工具/参数）——原因：旧 wait 截断只盖 `…` 无恢复指引、notice 旧指引指向 recv（recv 加限制后会失效），故统一改落盘文件指针；notice 通知头改三行 `[Agent会话通知]`/`agent_id={target_agent_id}`/`chat_id=...`（agent 大写去空格、template→agent_id 取真实 agent id 弃用 template_label、空格改换行）；用户隔离检查：宿主 tool_results 是 workspace 维度（本机按 agent 隔离→用户隔离），wait/recv 侧=调用方会话、notice 侧=唤醒方会话（`wake_agent_id`），不拿错；落盘失败降级纯截断提示；utils 新增 `get_agent_workspace_dir`/`get_tool_results_dir`/`save_truncated_body`；131 绿（+9：5 单元 + 4 集成全链路）
+- **命名统一（v0.2.4，作者拍板）**：list_agent 列名 `id`→`agent_id`、spawn 参数 `template`→`agent_id`（schemas.py 属性名 + 函数签名 + docstring/报错/提示 + list_session 显示 `template=`→`agent_id=` 全同步，tools_schema.json 快照已重生成）；内部 `SpawnRecord.template` 字段**已移除**、统一用 `agent_id`（持久化写 `agent_id` 键、读回落 `template` 兼容旧会话）；spawn 内部父会话变量 `agent_id`→`parent_agent_id`、`template_id`→`target_agent_id` 避撞名；顺带移除死字段 `NoticeRecord.template_label`（通知头改版后只写不读）；131 绿
 - **notice 气泡 busy 重试刷屏修复（v0.2.3，2026-11-18，作者报 bug）**：wait + notice 并用、父会话继续干活期间气泡反复弹（每 3s 一次直到停手）——根因 `_deliver` 双投递顺序颠倒（照抄 process-tools 时把「唤醒→气泡」写成「气泡→唤醒」，busy 重试每次都 append 气泡）；修复对齐 process-tools「唤醒成功才发气泡」语义：busy 不发气泡、成功才发、真失败仍尽力发（文本可见）；气泡逻辑抽 `_push_bubble()`；测试 122 全绿（+2 回归）；**真机验收通过（spawn 60s 等待任务 + notice + wait 并用，wait 返回后持续干活 31s 覆盖 ~10 次 busy 重试气泡全程 0 条，停手后恰好 1 条气泡 + 通知 turn 送达，console_push_store 全程实测）**
 - **context_export 相对路径修复（v0.2.2，2026-11-18）**：`Path(output_path)` 旧挂宿主进程 cwd（实测落 miniconda Scripts/，文件「消失」）→ utils 新增 `get_workspace_dir()`（内核 `qwenpaw.config.context.get_tool_base_dir` 三级回落「项目目录→agent 工作区→WORKING_DIR」，无 qwenpaw 回落空串；file-tools v1.8.3 / process-tools v0.6.8 同款 wrapper）+ `resolve_workspace_path()`（相对挂基准、绝对/`~` 照用，纯字符串运算）；成功消息回显绝对路径；schema 描述同步（schemas.py 唯一来源 → show_tool_schema.py 快照重生成）；测试 120 全绿（+3：相对挂基准落盘/消息含绝对路径集成 + resolve 两单元）；宿主内实测（internal-debug REPL）：回合外无 contextvar 回落 WORKING_DIR 而非宿主 cwd，回合内与 file-tools 27 工具同语义；**真机验收通过**（另一会话实测，zip 热装 + commit 同日完成）
 - 测试 120 全绿（纯 mock + 真单例集成 + TestHost，无 qwenpaw 运行时依赖）；已热装服役；**自然验收闭环（2026-11-18）**——spawn→wait 正文回收 / notice 全链路唤醒 / B2 注入路径实战 / B3 托管 task name 前缀实锤 / 分裂窗口收敛（8/8 SDK descriptor 绑 gen4）
@@ -47,6 +53,8 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 | 0.2.1 | SDK 深化三件套（2026-11-18，作者拍板）：A1 schema 固化 schemas.py（唯一正式 schema 来源，运行时零 agentscope 依赖；docstring 解耦不做双向锚定——双向锁定用例即建即撤，短 id 锁定下迁至常量）+ B2 ToolContext 注入 _CALL_CTX（agent_id/session_id 走公共面，user_id 公共面缺口保留内核）+ B3 flusher 迁 resources.task 托管（spawn_managed 注入优先/回落，Registration 自动回收）；B1 流式明确不做；四路对抗复审+动态测试（零 HIGH，5 处修复：监视协程 on_turn_finished 补防护/短 id 参数级锁/wait timeout null/异常传播契约用例/reset 注释），117 绿（详见 CHANGELOG 0.2.1） |
 | 0.2.2 | context_export 相对路径修复（2026-11-18，作者直觉测试抓出）：旧 `Path(output_path)` 挂宿主进程 cwd（实测落 miniconda Scripts/ 文件「消失」+ 成功消息回显相对路径误导）→ utils 新增 `get_workspace_dir()`（内核 `get_tool_base_dir` 三级回落）+ `resolve_workspace_path()`（相对挂基准/绝对与 `~` 照用，纯字符串运算）；成功消息回显绝对路径；schemas.py 描述同步 + 快照重生成；120 绿（+3 用例）（详见 CHANGELOG 0.2.2） |
 | 0.2.3 | notice 气泡 busy 重试刷屏修复（2026-11-18，作者报 bug）：wait+notice 并用、父会话干活期间气泡每 3s 反复弹——根因 `_deliver` 双投递顺序颠倒（照抄 process-tools 时「唤醒→气泡」写成「气泡→唤醒」，busy 重试每次都 append）；修复对齐「唤醒成功才发气泡」：busy 不发/成功才发/真失败仍尽力发；抽 `_push_bubble()`；122 绿（+2 回归）（详见 CHANGELOG 0.2.3） |
+| 0.2.4 | 截断全文落盘 + 上限分档（2026-11-20，作者拍板）：notice/wait/recv 正文超上限（notice 4000 聚合收小 / wait 9000 单目标 / recv 9000 同档——recv 此前无截断）→ 全文写读尾部会话的 workspace `tool_results`（宿主 `save_text_output`，`agent-tools-{uuid}.txt`，子目录名读 agent.json `tool_results_cache`）+ 尾部改文件指引（路径+总行数+从第 M 行续读，不点名工具，落盘失败降级纯提示）——旧 wait 截断只盖 `…` 无指引、notice 旧指针指向 recv（recv 加限制后会失效），故统一改落盘指针；用户隔离检查（宿主 tool_results 是 workspace 维度，wait/recv 侧=调用方/notice 侧=唤醒方会话）；utils 新增 3 函数；131 绿（+9）（详见 CHANGELOG 0.2.4） |
+| 0.2.5 | wait/notice 多会话（2026-11-20，作者拍板）：chat_id 支持单个/多个（真实 list / JSON 字符串数组容错，normalize_chat_id_list 去重保序、拒非字符串项）；wait 多 id = 任一不存在提前失败全不等、全部有效并发等待全部完成才返回（单块异常隔离）；notice 多 id = 部分成功（每块 `chat_id=<完整id>` + 5 句文案）、全无效整单 error、取消先校验存在性（不存在→取消失败）、多块异常隔离；schema chat_id anyOf string 或 array；167 绿（+36）（详见 CHANGELOG 0.2.5） |
 
 
 ## 设计决策要点（拍板记录）

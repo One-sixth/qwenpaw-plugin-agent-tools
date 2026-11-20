@@ -18,8 +18,9 @@ try:
     )
     from ..session_reader import read_latest_turn_body
     from ..submit import get_workspace
-    from ..utils import locate_chat, make_error, make_success, truncate_text
-    from .common import check_chat_id, describe_terminal
+    from ..utils import locate_chat, make_error, make_success
+    from .common import (check_chat_id, chunk_text, describe_terminal,
+                         normalize_chat_id_list, truncate_wait_body)
 except ImportError:  # 兼容 pytest 直接以项目根导入
     from manager import (
         STATUS_CANCELLED,
@@ -31,12 +32,11 @@ except ImportError:  # 兼容 pytest 直接以项目根导入
     )
     from session_reader import read_latest_turn_body
     from submit import get_workspace
-    from utils import locate_chat, make_error, make_success, truncate_text
-    from tools.common import check_chat_id, describe_terminal
+    from utils import locate_chat, make_error, make_success
+    from tools.common import (check_chat_id, chunk_text, describe_terminal,
+                              normalize_chat_id_list, truncate_wait_body)
 
 logger = logging.getLogger(__name__)
-
-WAIT_BODY_LIMIT = 8000
 
 
 def poll_interval(elapsed: float) -> float:
@@ -89,7 +89,7 @@ async def wait_for_terminal(workspace, target, turn, timeout: float,
                 except Exception:  # noqa: BLE001
                     body = ""
                 suffix = (
-                    f"\n—— 结果正文 ——\n{body}" if body
+                    f"\n—— 结果正文 ——\n{truncate_wait_body(body)}" if body
                     else "\n（会话文件中无正文）"
                 )
                 return (
@@ -107,7 +107,8 @@ async def wait_for_terminal(workspace, target, turn, timeout: float,
                     body = ""
                 return (
                     "状态：completed（无簿记，经迁移门观察确认）\n"
-                    f"—— 结果正文 ——\n{body or '（会话文件中无正文）'}"
+                    f"—— 结果正文 ——\n"
+                    f"{truncate_wait_body(body) if body else '（会话文件中无正文）'}"
                 )
 
         if loop.time() >= deadline:
@@ -115,7 +116,7 @@ async def wait_for_terminal(workspace, target, turn, timeout: float,
         await asyncio.sleep(poll_interval(loop.time() - start))
 
 
-async def agent_tools_wait(chat_id: str, timeout: int | float | str = 900):
+async def _wait_one(chat_id, timeout: int | float | str = 900):
     """前台等待子会话回合结束并返回最终正文（超时不停止目标会话）。
 
     Args:
@@ -171,6 +172,54 @@ async def agent_tools_wait(chat_id: str, timeout: int | float | str = 900):
         "可 wait(chat_id, timeout=1800) 续等、notice(chat_id) 挂通知、"
         "recv 读进度、stop 停止。"
     )
+
+
+async def agent_tools_wait(chat_id, timeout: int | float | str = 900):
+    """前台等待一个或多个子会话回合结束并返回最终正文（超时不停止目标会话）。
+
+    chat_id 可为单个字符串，或多个字符串组成的数组 / JSON 字符串数组。
+    多个 id：**全部完成后才返回**；任一会话 id 不存在 → 提前失败，不对任何
+    会话发起等待。
+    """
+    ids, err = normalize_chat_id_list(chat_id)
+    if err:
+        return make_error("等待会话", err)
+    if len(ids) == 1:
+        return await _wait_one(ids[0], timeout)
+
+    # 多会话：先整体预校验，任一无效 → 提前失败、全都不等待
+    bad = []
+    for raw in ids:
+        cid_, e, _healed = check_chat_id(raw)
+        if e:
+            bad.append(e)
+            continue
+        tgt = await locate_chat(cid_)
+        if tgt is None:
+            bad.append(f"chat_id '{raw}' 不存在，请检查拼写")
+            continue
+        if _workspace_of(tgt) is None:
+            bad.append(f"chat_id '{raw}' 对应 agent 的 workspace 未运行")
+    if bad:
+        lines = "\n".join(f"  - {m}" for m in bad)
+        return make_error(
+            "等待会话",
+            f"以下 chat_id 不存在或无效：\n{lines}\n（未对任何会话发起等待）",
+        )
+
+    # 全部有效 → 并发等待，全部完成（或各自超时）后返回；单块异常不影响其他块
+    results = await asyncio.gather(
+        *[_wait_one(raw, timeout) for raw in ids], return_exceptions=True,
+    )
+    blocks, all_err = [], True
+    for raw, ch in zip(ids, results):
+        if isinstance(ch, BaseException):
+            blocks.append(f"### 会话 {raw}\n等待会话失败：处理异常 {ch!r}")
+            continue
+        all_err = all_err and bool(getattr(ch, "is_error", False))
+        blocks.append(f"### 会话 {raw}\n{chunk_text(ch)}")
+    joined = "\n\n".join(blocks)
+    return make_error(joined) if all_err else make_success(joined)
 
 
 def _workspace_of(target):

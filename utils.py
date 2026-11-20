@@ -5,6 +5,7 @@
 身份前缀构造、本地时间+偏移格式化等工具共享的底层能力。
 """
 
+import json
 import logging
 import os
 import re
@@ -454,8 +455,82 @@ async def locate_chat(chat_id: str):
 # ── 小工具 ────────────────────────────────────────────────
 
 
-def truncate_text(text: str, limit: int, marker: str = "…") -> str:
-    """超长截断（字符数），附省略标记。"""
+# 截断标记（大写英文，QwenPaw 工具输出同款风格）
+TRUNCATE_MARKER = "<<<TRUNCATED>>>"
+
+
+def truncate_tail(limit: int, file_path: "str | None" = None,
+                  start_line: "int | None" = None,
+                  total_lines: "int | None" = None) -> str:
+    """截断尾部提示（标记后加两个换行再拼上）：上限数值 + 全文文件指引
+    （QwenPaw 大 tool_result 同款风格）。file_path 缺失（存盘失败）→
+    降级为纯截断提示。"""
+    if file_path and start_line:
+        lines = f"（共 {total_lines} 行）" if total_lines else ""
+        return (f"{TRUNCATE_MARKER}正文已截断（上限 {limit} 字符）。"
+                f"全文：{file_path}{lines}，"
+                f"从第 {start_line} 行开始续读（包含被截断的那行）")
+    return f"{TRUNCATE_MARKER}正文已截断（上限 {limit} 字符）"
+
+
+def truncate_text(text: str, limit: int, marker: str = TRUNCATE_MARKER,
+                  tail: "str | None" = None) -> str:
+    """超长截断（字符数），附标记；传 tail 时标记后加两个换行再拼尾部提示。"""
     if len(text) <= limit:
         return text
-    return text[:limit] + marker
+    out = text[:limit] + marker
+    if tail:
+        out += f"\n\n{tail}"
+    return out
+
+
+# ── 截断全文落盘（QwenPaw 大 tool_result 同款机制） ──────────
+# 正文超上限时：全文写入「读尾部的那个会话」的 workspace tool_results
+# 目录（复用宿主 save_text_output，命名 agent-tools-{uuid}.txt），
+# 尾部指引给出文件路径 + 续读行号（前 limit 字符已在输出中展示）。
+
+
+def get_agent_workspace_dir(agent_id: str) -> str:
+    """指定 agent 的 workspace 目录（load_config().agents.profiles；
+    失败/不存在返回空串）。"""
+    try:
+        from qwenpaw.config.utils import load_config
+        profile = load_config().agents.profiles.get(agent_id)
+        return getattr(profile, "workspace_dir", None) or ""
+    except Exception:  # noqa: BLE001
+        logger.warning("workspace_dir 查询失败（agent=%s）", agent_id,
+                       exc_info=True)
+        return ""
+
+
+def get_tool_results_dir(workspace_dir: str) -> str:
+    """workspace 下 tool_results 目录（读 agent.json 的 tool_results_cache
+    配置与宿主对齐；失败回落默认 "tool_results"）。"""
+    sub = "tool_results"
+    try:
+        with open(os.path.join(workspace_dir, "agent.json"),
+                  encoding="utf-8") as f:
+            data = json.load(f)
+        sub = (data.get("running", {}).get("light_context_config", {})
+               .get("tool_result_pruning_config", {})
+               .get("tool_results_cache") or "tool_results")
+    except Exception:  # noqa: BLE001
+        logger.warning("tool_results_cache 配置读取失败，用默认目录",
+                       exc_info=True)
+    return os.path.join(workspace_dir, sub)
+
+
+def save_truncated_body(body: str, workspace_dir: str) -> "str | None":
+    """全文正文写入 workspace tool_results 目录（宿主 save_text_output），
+    返回绝对路径；失败返回 None（尾部降级为纯截断提示）。"""
+    if not body or not workspace_dir:
+        return None
+    try:
+        from qwenpaw.agents.tools.utils import save_text_output
+        return save_text_output(
+            body, get_tool_results_dir(workspace_dir),
+            name_hint="agent-tools",
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("全文落盘 tool_results 失败", exc_info=True)
+        return None

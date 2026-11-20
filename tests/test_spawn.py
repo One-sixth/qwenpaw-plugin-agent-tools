@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""spawn 工具测试：template 校验 / 深度限制 / 簿记与活跃表 / 前台超时。"""
+"""spawn 工具测试：agent_id 校验 / 深度限制 / 簿记与活跃表 / 前台超时。"""
 
 import asyncio
 
@@ -70,11 +70,11 @@ def test_spawn_empty_task():
     assert "task 不能为空" in _chunk_text(chunk)
 
 
-def test_spawn_invalid_template(monkeypatch):
+def test_spawn_invalid_agent_id(monkeypatch):
     from tools.spawn import agent_tools_spawn
 
     monkeypatch.setattr(spawn_mod, "_get_profile", lambda tid: None)
-    chunk = asyncio.run(agent_tools_spawn(task="hi", template="ghost"))
+    chunk = asyncio.run(agent_tools_spawn(task="hi", agent_id="ghost"))
     assert "不存在或未启用" in _chunk_text(chunk)
     assert "list_agent" in _chunk_text(chunk)
 
@@ -88,7 +88,7 @@ def test_spawn_depth_limit(monkeypatch):
     mgr = get_manager()
     mgr.inject_spawn_record(
         "chat-parent", agent_id="default", session_id="default",
-        template="default", depth=5, turns=[make_turn(status="running")],
+        depth=5, turns=[make_turn(status="running")],
     )
     chunk = asyncio.run(agent_tools_spawn(task="hi"))
     assert "链深上限" in _chunk_text(chunk)
@@ -98,7 +98,7 @@ def test_spawn_success_bookkeeping(monkeypatch):
     from tools.spawn import agent_tools_spawn
 
     submitted = _patch(monkeypatch)
-    chunk = asyncio.run(agent_tools_spawn(task="干活去", template=""))
+    chunk = asyncio.run(agent_tools_spawn(task="干活去", agent_id=""))
     text = _chunk_text(chunk)
     assert "[CHAT_ID: chat-new]" in text
     assert "agent_tools_wait(chat_id)" in text
@@ -112,11 +112,11 @@ def test_spawn_success_bookkeeping(monkeypatch):
     assert rc.get("_spawn_subagent") is True
     assert rc.get("parent_session_id") in ("", "default")
 
-    # 簿记 + 活跃表（template="" → 当前 agent 身份，回落上下文 default）
+    # 簿记 + 活跃表（agent_id="" → 当前 agent 身份，回落上下文 default）
     mgr = get_manager()
     record = mgr.get_record("chat-new")
     assert record is not None
-    assert record.agent_id == "default" and record.template == "default"
+    assert record.agent_id == "default"
     assert record.depth == 1
     assert record.parent == ("default", "default")
     assert len(record.turns) == 1

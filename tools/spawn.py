@@ -63,15 +63,15 @@ _WAIT_HINT = (
 
 async def agent_tools_spawn(
     task: str,
-    template: str = "",
+    agent_id: str = "",
     background: bool | str | int = True,
     timeout: int | float | str | None = None,
 ):
-    """以指定 agent 为模板 spawn 持久子会话（默认后台，返回 chat_id）；完成后可用 communicate 续聊。
+    """以指定 agent 身份 spawn 持久子会话（默认后台，返回 chat_id）；完成后可用 communicate 续聊。
 
     Args:
         task: 子会话首轮任务描述。
-        template: 目标 agent 的 id（agent_tools_list_agent 返回的 id，非显示名）；空=自己。
+        agent_id: 目标 agent 的 id（agent_tools_list_agent 返回的 agent_id 字段，非显示名）；空=自己。
         background: True=后台立即返回（默认）；False=前台等完成（直接返回最终正文）或超时（超时只放弃等待，不停止会话）。
         timeout: background=False 时的等待上限（秒），默认 600。
     """
@@ -79,18 +79,18 @@ async def agent_tools_spawn(
     if not task:
         return make_error("spawn 子会话", "task 不能为空")
 
-    template = str(template or "").strip()
-    agent_id, user_id, session_id = get_current_context()
+    agent_id = str(agent_id or "").strip()
+    parent_agent_id, user_id, session_id = get_current_context()
     channel = _current_channel_safe()
-    template_id = template or agent_id
+    target_agent_id = agent_id or parent_agent_id
 
-    # ── template 校验（load_config 纯内部读） ──
-    profile = _get_profile(template_id)
+    # ── agent_id 校验（load_config 纯内部读） ──
+    profile = _get_profile(target_agent_id)
     if profile is None:
         return make_error(
-            f"ERROR: template '{template_id}' 不存在或未启用。"
+            f"ERROR: agent_id '{target_agent_id}' 不存在或未启用。"
             "用 agent_tools_list_agent 查看可用 agent"
-            "（注意传 id 字段，如 'demo-agent'，非显示名）",
+            "（注意传 agent_id 字段，如 'demo-agent'，非显示名）",
         )
 
     # ── 深度限制（发起者不在簿记 → 基准 0，子 depth=1） ──
@@ -105,11 +105,11 @@ async def agent_tools_spawn(
         )
 
     # ── 模板 workspace 现取（未启动 → 报错引导） ──
-    workspace = get_workspace(template_id)
+    workspace = get_workspace(target_agent_id)
     if workspace is None:
         return make_error(
             "spawn 子会话",
-            f"agent '{template_id}' 的 workspace 未运行"
+            f"agent '{target_agent_id}' 的 workspace 未运行"
             "（在 WebUI 切到该 agent 启动后重试）",
         )
 
@@ -119,13 +119,13 @@ async def agent_tools_spawn(
             _build_spawn_request_context,
         )
 
-        request_context = _build_spawn_request_context(agent_id)
+        request_context = _build_spawn_request_context(parent_agent_id)
     except Exception:  # noqa: BLE001
         logger.warning("_build_spawn_request_context 失败，降级最小构造",
                        exc_info=True)
         request_context = {
             "root_session_id": session_id,
-            "root_agent_id": agent_id,
+            "root_agent_id": parent_agent_id,
             "parent_session_id": session_id,
             "user_id": user_id,
             "channel": channel,
@@ -136,12 +136,12 @@ async def agent_tools_spawn(
     sub_session_id = f"sub-{uuid.uuid4().hex[:8]}"
 
     # ── 身份前缀（Name = 发起者 agent.json 的 name） ──
-    parent_name = _agent_name(agent_id)
+    parent_name = _agent_name(parent_agent_id)
     parent_chat_id = await resolve_parent_chat_id(
-        workspace, agent_id, session_id,
+        workspace, parent_agent_id, session_id,
     )
     text = (
-        build_identity_prefix(parent_name, agent_id, parent_chat_id)
+        build_identity_prefix(parent_name, parent_agent_id, parent_chat_id)
         + "\n\n" + task
     )
 
@@ -159,16 +159,16 @@ async def agent_tools_spawn(
     # ── 簿记 + 活跃表 ──
     turn = TurnRecord()
     record = SpawnRecord(
-        agent_id=template_id, session_id=sub_session_id, user_id=user_id,
-        channel=channel, chat_id=result.chat_id, template=template_id,
+        agent_id=target_agent_id, session_id=sub_session_id, user_id=user_id,
+        channel=channel, chat_id=result.chat_id,
         depth=depth,
-        parent=(agent_id, session_id) if session_id else None,
+        parent=(parent_agent_id, session_id) if session_id else None,
         spawn_request_context=request_context, turns=[turn],
     )
     manager.register_spawn(record)
     manager.register_active(
-        template_id, sub_session_id, result.chat_id,
-        parent=(agent_id, session_id) if session_id else None,
+        target_agent_id, sub_session_id, result.chat_id,
+        parent=(parent_agent_id, session_id) if session_id else None,
         turn=turn,
     )
     manager.sweep_expired()
@@ -225,13 +225,13 @@ def _current_channel_safe() -> str:
         return current_channel()
 
 
-def _get_profile(template_id: str):
+def _get_profile(agent_id: str):
     """load_config 读 agent profile（enabled 过滤）。"""
     try:
         from qwenpaw.config.utils import load_config
 
         profiles = load_config().agents.profiles
-        profile = profiles.get(template_id)
+        profile = profiles.get(agent_id)
         if profile is not None and profile.enabled:
             return profile
     except Exception:  # noqa: BLE001

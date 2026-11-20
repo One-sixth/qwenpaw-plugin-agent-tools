@@ -36,7 +36,7 @@ def agent_tools_list_session():
             spawned_at = record.created_at.strftime("%Y-%m-%d %H:%M:%S")
             restored_list.append(
                 f"[restored] chat_id={record.chat_id} session={record.session_id}"
-                f"（template={record.template}，spawned {spawned_at}，"
+                f"（agent_id={record.agent_id}，spawned {spawned_at}，"
                 f"历史回合不随簿记恢复）"
             )
             continue
@@ -47,7 +47,7 @@ def agent_tools_list_session():
         spawn_at = record.created_at.strftime("%H:%M:%S")
         base = (
             f"chat_id={record.chat_id} session={record.session_id}"
-            f"（template={record.template}，spawn {spawn_at}{latest}）{bell}"
+            f"（agent_id={record.agent_id}，spawn {spawn_at}{latest}）{bell}"
         )
         if status == STATUS_RUNNING or (turn is not None
                                         and turn.status == STATUS_RUNNING):

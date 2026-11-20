@@ -21,7 +21,7 @@ CHAT = "ab12cd34-5678-4abc-8def-112233445566"
 
 def _record(parent=("default", "1794832098524-hq4cvko")):
     return make_record(CHAT, agent_id="demo-agent", session_id="sub-1a2b3c4d",
-                       user_id="u", channel="console", template="demo-agent",
+                       user_id="u", channel="console",
                        depth=1, parent=parent)
 
 
@@ -30,7 +30,7 @@ def _record(parent=("default", "1794832098524-hq4cvko")):
 
 def test_build_spawn_meta_fields():
     meta = build_spawn_meta(_record(), parent_chat_id="55dd955c-0000")
-    assert meta["template"] == "demo-agent"
+    assert meta["agent_id"] == "demo-agent"
     assert meta["depth"] == 1
     assert meta["parent_agent_id"] == "default"
     assert meta["parent_session_id"] == "1794832098524-hq4cvko"
@@ -82,7 +82,7 @@ def test_persist_merges_and_keeps_sibling_keys():
     ok = asyncio.run(persist_spawn_identity(ws, _record(), "55dd955c-0000"))
     assert ok is True
     saved = cm._repo.chats[CHAT]
-    assert saved.meta[META_KEY]["template"] == "demo-agent"
+    assert saved.meta[META_KEY]["agent_id"] == "demo-agent"
     assert saved.meta["runtime_context"] == {"model": {"k": "v"}}  # 兄弟键不动
     assert spec.meta.get(META_KEY) is None  # 原 spec 不被原地改（model_copy）
 
@@ -153,7 +153,7 @@ def test_restore_backfills_and_resolves(tmp_path, monkeypatch):
     assert restored == 1
     rec = mgr.get_record(CHAT)
     assert rec is not None and rec.restored is True
-    assert rec.agent_id == "demo-agent" and rec.template == "demo-agent"
+    assert rec.agent_id == "demo-agent"
     assert rec.session_id == "sub-1a2b3c4d" and rec.depth == 2
     assert rec.parent == ("default", "1794832098524-hq4cvko")
     # spawned_at 还原 created_at（list_session 显示真实 spawn 时间）

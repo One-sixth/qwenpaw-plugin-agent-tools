@@ -62,7 +62,6 @@ class SpawnRecord:
     user_id: str
     channel: str
     chat_id: str
-    template: str = ""
     depth: int = 0
     parent: Optional[Tuple[str, str]] = None          # (agent_id, session_id)
     spawn_request_context: Optional[dict] = None      # spawn 回合审批路由键
@@ -142,7 +141,6 @@ class NoticeRecord:
     wake_user_id: str
     wake_session_id: str
     wake_channel: str
-    template_label: str = ""      # 通知文本展示用（注册时从簿记快照）
     registered_at: datetime = field(default_factory=datetime.now)
     cancelled: bool = False
     completion_sent: bool = False
@@ -396,7 +394,6 @@ class AgentToolsManager:
         session_id: str = "sub-test0001",
         user_id: str = "default",
         channel: str = "console",
-        template: str = "child",
         depth: int = 1,
         parent: Optional[Tuple[str, str]] = None,
         spawn_request_context: Optional[dict] = None,
@@ -409,7 +406,6 @@ class AgentToolsManager:
             user_id=user_id,
             channel=channel,
             chat_id=chat_id,
-            template=template,
             depth=depth,
             parent=parent,
             spawn_request_context=spawn_request_context,

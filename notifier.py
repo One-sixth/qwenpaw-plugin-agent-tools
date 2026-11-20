@@ -35,17 +35,19 @@ from typing import Optional
 
 try:
     from .manager import TTL_HOURS, NoticeRecord, get_manager
-    from .utils import truncate_text
+    from .utils import (get_agent_workspace_dir, save_truncated_body,
+                        truncate_tail, truncate_text)
 except ImportError:  # 兼容 pytest 直接以项目根导入
     from manager import TTL_HOURS, NoticeRecord, get_manager
-    from utils import truncate_text
+    from utils import (get_agent_workspace_dir, save_truncated_body,
+                       truncate_tail, truncate_text)
 
 logger = logging.getLogger(__name__)
 
 # 聚合窗口（秒）：首条通知后至少等这么久；会话忙时同粒度忙等（无上限）
 FLUSH_WINDOW_SECONDS = 3.0
 
-# 通知正文截断上限（正文可能巨大，防撑爆父会话上下文）
+# 通知正文截断上限（2026-11-20 作者拍板：通知可能多条聚合同气泡，收小）
 NOTIFY_BODY_LIMIT = 4000
 
 
@@ -80,16 +82,20 @@ class PendingNotice:
 def build_notice_text(record: NoticeRecord, status: str,
                       result_text: str) -> str:
     """构建完成通知文本（终态时冻结；completed 带正文截断）。"""
-    # template 兜底显示目标 agent id（监视协程路径簿记缺失 → label 空）
-    label = record.template_label or record.target_agent_id
-    head = f"[agent 会话通知] chat_id={record.target_chat_id}（template={label}）"
+    head = (f"[Agent会话通知]\n"
+            f"agent_id={record.target_agent_id}\n"
+            f"chat_id={record.target_chat_id}")
     if status == "completed":
-        body = truncate_text(result_text or "", NOTIFY_BODY_LIMIT)
-        tail = "" if len(result_text or "") <= NOTIFY_BODY_LIMIT else (
-            f"\n\n（正文超长已截断至 {NOTIFY_BODY_LIMIT} 字符，"
-            "完整内容用 agent_tools_communicate(chat_id, action='recv') 读取）"
-        )
-        return f"{head}\n状态：completed\n—— 结果正文 ——\n{body}{tail}"
+        body = result_text or ""
+        if len(body) > NOTIFY_BODY_LIMIT:
+            # 超限：全文落盘唤醒会话 workspace tool_results（QwenPaw 同款）
+            ws_dir = get_agent_workspace_dir(record.wake_agent_id)
+            file_path = save_truncated_body(body, ws_dir)
+            tail = truncate_tail(NOTIFY_BODY_LIMIT, file_path,
+                                 body[:NOTIFY_BODY_LIMIT].count("\n") + 1,
+                                 body.count("\n") + 1)
+            body = truncate_text(body, NOTIFY_BODY_LIMIT, tail=tail)
+        return f"{head}\n状态：completed\n—— 结果正文 ——\n{body}"
     reason = f"\n原因：{record.last_error}" if record.last_error else ""
     hint = "" if status == "failed" else "\n（会话被 stop 停止）"
     return (

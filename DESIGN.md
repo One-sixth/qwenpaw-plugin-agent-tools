@@ -96,10 +96,10 @@
 ### 3.1 agent_tools_spawn
 
 ```
-agent_tools_spawn(task, template="", background=True, timeout=None) -> text
+agent_tools_spawn(task, agent_id="", background=True, timeout=None) -> text
 ```
 
-- `template`：目标 agent 的 **id**（list_agents 返回的 id 字段，非显示名）；空字符串 = 当前 agent 身份。无效时报错：`ERROR: template 'xxx' 不存在或未启用。用 list_agents 查看可用 agent（注意传 id 字段，如 'demo-agent'，非显示名）。`
+- `agent_id`：目标 agent 的 **id**（list_agent 返回的 agent_id 字段，非显示名）；空字符串 = 当前 agent 身份。无效时报错：`ERROR: agent_id 'xxx' 不存在或未启用。用 list_agent 查看可用 agent（注意传 agent_id 字段，如 'demo-agent'，非显示名）。`
 - `background=True` 默认：提交后立即返回（文案见 3.9①）
 - `background=False`：前台等待，但 **timeout 语义 = wait 语义**——超时**绝不停止目标会话**，返回「仍在运行」+ 四选项提示（见 3.9⑤）
 - 自动在 task 文本头部加中文身份前缀（见 4.5）
@@ -125,7 +125,7 @@ agent_tools_communicate(chat_id, action: "send"|"recv"|"stop", text="", ...) -> 
 ### 3.3 agent_tools_wait
 
 ```
-agent_tools_wait(chat_id, timeout=900) -> text
+agent_tools_wait(chat_id | chat_id[], timeout=900) -> text
 ```
 
 - 智能轮询（wait_agent_task 同款节奏）：0-10s 每 1s、10-30s 每 3s、30-60s 每 5s、60s+ 每 10s
@@ -134,17 +134,19 @@ agent_tools_wait(chat_id, timeout=900) -> text
 - 起始即 idle 且全程 idle（未簿记 + 无 running 迹象）→ 返回「无运行中回合」而非「已完成」（防重启后误报，审查 M8）
 - **stale 分支**：簿记=running 但 tracker=idle（消费者异常退出未写终态）→ 视为终态：从 session 文件读正文，标注「已完成（簿记与运行状态不一致，正文从会话文件读取）」（复审 M4 采纳）
 - 消费者跑批期间：wait 每次轮询顺带做 TTL 惰性清理（见 4.1）
+- **多会话（v0.2.5）**：chat_id 可为单个字符串或字符串数组（也容错 JSON 字符串数组）。多个 id 时先整体预校验——任一不存在/无效 → **提前失败、不对任何会话发起等待**（逐条「chat_id 'xxx' 不存在，请检查拼写」）；全部有效 → 并发等待，**全部完成（或各自超时）后才返回**，每块前缀 `### 会话 {chat_id}`、每块正文独立截断落盘；单块异常隔离为该块错误文本（不整单抛错）
 
 ### 3.4 agent_tools_notice
 
 ```
-agent_tools_notice(chat_id, cancel=False) -> text
+agent_tools_notice(chat_id | chat_id[], cancel=False) -> text
 ```
 
+- **多会话（v0.2.5）**：chat_id 可为单个字符串或字符串数组（容错 JSON 字符串数组）。多个 id 时**部分成功**——存在的逐个注册/取消，不存在的逐个返回「目标会话未找到，注册失败 / 取消失败」，不整单失败；全部无效时整单错误（保持块格式）。**取消先 locate 校验存在性，不存在 → `目标会话未找到，取消失败`**。固定 5 句：`完成通知已注册` / `完成通知已取消` / `目标会话未注册完成通知` / `目标会话未找到，注册失败` / `目标会话未找到，取消失败`（兜底/幂等/撤回不单写）；多会话每块 `chat_id=<解析后完整 id>` + 换行 + 文案，块间空行。
 - **照抄 process-tools 通知设计**（作者拍板），**但去掉周期通知——只要完成通知**（作者拍板；不设 interval_seconds）
 - 注册制 opt-in + 会话聚合投递（3s 窗口 swap-and-clear）+ console 双投递（`console_push_store` 气泡 + `_submit_turn` 唤醒父会话）+ 非 console 频道信使路由（in-process 直调 `run_wake`，见 4.6）+ 忙等重试无上限 + cancel 取消并撤回待发通知
 - **completed / failed / cancelled 三种终态全部触发**（作者明确要求：token 额度耗尽等异常终止也要通知）
-- 注册时目标已终态（消费者已退出、退出事件已错过）→ **不注册**，直接返回终态 + 结果正文，引导 `wait/communicate recv`（对齐 process-tools「已结束不可注册」边界）
+- 注册时目标已终态（消费者已退出、退出事件已错过）→ **不注册**，只返回一句 `目标会话未注册完成通知`（不返回正文；需结果请再 `wait` / `communicate recv`）
 - 未簿记回合的监视协程：**必须先观察到 `running` 再转 `idle` 才触发**（迁移门，防重启后对从未运行的会话发假完成通知，审查 M8）
 - notice 注册记录结构（复审 H2 采纳）：
 
@@ -221,9 +223,9 @@ agent_tools_list_agent() -> text
 ```
 
 - **数据来源（纯内部路线）**：`load_config()` 读 `agents.profiles`（id / workspace_dir / enabled）+ 逐个读各 workspace 的 `agent.json`（`name` / `description`）——不走官方 HTTP `/agents`（决策 11 自洽）
-- **输出**：紧凑一行式，每行 `id ｜ name ｜ enabled ｜ description`；当前 agent 标注 ★，disabled 标注（disabled 不可作 template，spawn 校验会拒绝）
-- 用途：spawn 的 `template` 取值来源（功能与官方 `list_agents` 对齐，输出格式更紧凑省 token）
-- docstring：`查看当前所有可用 agent（id/名字/启用状态/描述）。spawn 的 template 传这里的 id 字段（非显示名）。`
+- **输出**：紧凑一行式，每行 `agent_id ｜ name ｜ enabled ｜ description`；当前 agent 标注 ★，disabled 标注（disabled 不可作 agent_id，spawn 校验会拒绝）
+- 用途：spawn 的 `agent_id` 取值来源（功能与官方 `list_agents` 对齐，输出格式更紧凑省 token）
+- docstring：`查看当前所有可用 agent（agent_id/名字/启用状态/描述）。spawn 的 agent_id 传这里的 agent_id 字段（非显示名）。`
 
 ### 3.8 agent_tools_list_session（第 8 工具，原 agent_tools_list 改名，作者拍板）
 
@@ -231,7 +233,7 @@ agent_tools_list_agent() -> text
 agent_tools_list_session() -> text
 ```
 
-- 列出簿记中全部 SpawnRecord（三段式：运行中 / 已完成 / 失败取消），每行：编号、状态、chat_id、session_id、template、spawn 时间、最新回合状态
+- 列出簿记中全部 SpawnRecord（三段式：运行中 / 已完成 / 失败取消），每行：编号、状态、chat_id、session_id、agent_id、spawn 时间、最新回合状态
 - **通知注册状态一并显示**（🔔 标记，参考 process_tools_list 的通知标记列）
 - docstring 边界：`仅列出本插件本进程内 spawn 的会话（宿主重启/插件重载后清空）；人工 WebUI 会话不在列`
 - 用途：会话被上下文压缩后 LLM 找回 chat_id 的插件级发现路径
@@ -295,9 +297,9 @@ ERROR: output_path 必填（导出 Markdown 路径）。建议写 <workspace>\me
 **⑨ agent_tools_list_session 返回**（三段式 + 🔔 通知标记）：
 ```
 == 运行中（2） ==
-#1 [running] chat_id=ab12cd34-… session=sub-1a2b3c4d（template=demo-agent，spawn 11:03:45，最新回合 running）🔔
+#1 [running] chat_id=ab12cd34-… session=sub-1a2b3c4d（agent_id=demo-agent，spawn 11:03:45，最新回合 running）🔔
 == 已完成（3） ==
-#3 [completed] chat_id=…（template=demo-agent，完成 11:20:01）
+#3 [completed] chat_id=…（agent_id=demo-agent，完成 11:20:01）
 == 失败/取消（1） ==
 #6 [failed] chat_id=…（原因：<摘要>）
 （无记录时输出：当前没有本插件 spawn 的会话记录）
@@ -312,7 +314,7 @@ ERROR: output_path 必填（导出 Markdown 路径）。建议写 <workspace>\me
 ```python
 SpawnRecord:  # 每 chat 一条
     agent_id, session_id, user_id, channel, chat_id
-    template, depth           # spawn 链深（未簿记发起者基准 0）
+    depth                     # spawn 链深（未簿记发起者基准 0）
     parent: (agent_id, session_id) | None   # 发起者（祖先链追溯用）
     spawn_request_context: dict | None      # spawn 回合审批路由键（communicate send 续聊时原样携带）
     turns: list[TurnRecord]   # 多回合：spawn + 每次 communicate send 各一条

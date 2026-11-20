@@ -10,16 +10,16 @@ schema 生成、不要求与本文件同步**（作者拍板：不做双向锚�
 """
 
 AGENT_TOOLS_SPAWN = {
-    "description": '以指定 agent 为模板 spawn 持久子会话（默认后台，返回 chat_id）；完成后可用 communicate 续聊。',
+    "description": '以指定 agent 身份 spawn 持久子会话（默认后台，返回 chat_id）；完成后可用 communicate 续聊。',
     "input_schema": {
         "properties": {
             "task": {
                 "description": '子会话首轮任务描述。',
                 "type": 'string'
             },
-            "template": {
+            "agent_id": {
                 "default": '',
-                "description": '目标 agent 的 id（agent_tools_list_agent 返回的 id，非显示名）；空=自己。',
+                "description": '目标 agent 的 id（agent_tools_list_agent 返回的 agent_id 字段，非显示名）；空=自己。',
                 "type": 'string'
             },
             "background": {
@@ -92,12 +92,15 @@ AGENT_TOOLS_COMMUNICATE = {
 }
 
 AGENT_TOOLS_WAIT = {
-    "description": '前台等待子会话回合结束并返回最终正文（超时不停止目标会话）。',
+    "description": '前台等待子会话回合结束并返回最终正文（超时不停止目标会话）。chat_id 可为单个或多个：多个时全部完成才返回，任一 id 不存在则提前失败、不对任何会话发起等待。',
     "input_schema": {
         "properties": {
             "chat_id": {
-                "description": '子会话 id（完整 UUID，也支持其第一段 8 位 hex 短 id）。',
-                "type": 'string'
+                "anyOf": [
+                    {"type": 'string'},
+                    {"type": 'array', "items": {"type": 'string'}},
+                ],
+                "description": '子会话 id：单个字符串，或多个字符串组成的数组（每项支持完整 UUID 或 8 位 hex 短 id）；误传 JSON 字符串数组（如 \'["a","b"]\'）也会自动解析。',
             },
             "timeout": {
                 "anyOf": [
@@ -127,12 +130,15 @@ AGENT_TOOLS_WAIT = {
 }
 
 AGENT_TOOLS_NOTICE = {
-    "description": '注册子会话完成通知（每回合 completed/failed/cancelled 均触发）。通知在你停手（回合空闲）时投递，连续调工具期间暂存、停手补发。',
+    "description": '注册子会话完成通知（每回合 completed/failed/cancelled 均触发）。通知在你停手（回合空闲）时投递，连续调工具期间暂存、停手补发。chat_id 可为单个或多个：多个时每块返回 `chat_id=<完整 id>`（无法解析的 id 原样回显）+ 结果行（完成通知已注册 / 完成通知已取消 / 目标会话未注册完成通知 / 目标会话未找到，注册失败 / 目标会话未找到，取消失败）。',
     "input_schema": {
         "properties": {
             "chat_id": {
-                "description": '子会话 id（完整 UUID，也支持其第一段 8 位 hex 短 id）。',
-                "type": 'string'
+                "anyOf": [
+                    {"type": 'string'},
+                    {"type": 'array', "items": {"type": 'string'}},
+                ],
+                "description": '子会话 id：单个字符串，或多个字符串组成的数组（每项支持完整 UUID 或 8 位 hex 短 id）；误传 JSON 字符串数组（如 \'["a","b"]\'）也会自动解析。',
             },
             "cancel": {
                 "anyOf": [
@@ -159,7 +165,7 @@ AGENT_TOOLS_NOTICE = {
 }
 
 AGENT_TOOLS_LIST_AGENT = {
-    "description": '查看当前所有可用 agent（id/名字/启用状态/描述）。spawn 的 template 传这里的 id 字段（非显示名）。',
+    "description": '查看当前所有可用 agent（agent_id/名字/启用状态/描述）。spawn 的 agent_id 传这里的 agent_id 字段（非显示名）。',
     "input_schema": {
         "properties": {},
         "type": 'object',

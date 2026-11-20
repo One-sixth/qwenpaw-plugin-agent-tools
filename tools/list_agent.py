@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def agent_tools_list_agent():
-    """查看当前所有可用 agent（id/名字/启用状态/描述）。spawn 的 template 传这里的 id 字段（非显示名）。"""
+    """查看当前所有可用 agent（agent_id/名字/启用状态/描述）。spawn 的 agent_id 传这里的 agent_id 字段（非显示名）。"""
     try:
         from qwenpaw.config.utils import load_config
     except Exception as exc:  # noqa: BLE001
@@ -38,7 +38,7 @@ def agent_tools_list_agent():
         except Exception:  # noqa: BLE001
             pass  # agent.json 缺失/坏档 → 空字段
         star = " ★" if agent_id == current_agent else ""
-        enabled = "" if profile.enabled else "（disabled，不可作 template）"
+        enabled = "" if profile.enabled else "（disabled，不可作 agent_id）"
         lines.append(
             f"{agent_id}{star} ｜ {name or '（无名）'} ｜ "
             f"{'enabled' if profile.enabled else 'disabled'}{enabled} ｜ "
@@ -47,8 +47,8 @@ def agent_tools_list_agent():
     if not lines:
         return make_success("当前没有已配置的 agent。")
     header = (
-        "[id ｜ name ｜ enabled ｜ description]　"
-        "★=当前会话所属 agent；disabled 不可作 template；"
-        "spawn 的 template 传 id 字段（非显示名）"
+        "[agent_id ｜ name ｜ enabled ｜ description]　"
+        "★=当前会话所属 agent；disabled 不可作 agent_id；"
+        "spawn 的 agent_id 传这里的 agent_id 字段（非显示名）"
     )
     return make_success(header + "\n" + "\n".join(lines))

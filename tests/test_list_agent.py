@@ -26,15 +26,15 @@ def test_list_agent_header_and_rows(monkeypatch):
     text = chunk.content[0].text
 
     # 标头（作者拍板：列意义说明）
-    assert text.startswith("[id ｜ name ｜ enabled ｜ description]")
-    assert "spawn 的 template 传 id 字段" in text
+    assert text.startswith("[agent_id ｜ name ｜ enabled ｜ description]")
+    assert "spawn 的 agent_id 传这里的 agent_id 字段" in text
     # 行格式
     assert "default ★" in text            # 当前 agent 标注
     assert "demo-agent" in text and "（无名）" in text   # agent.json 缺失降级
-    assert "qa" in text and "disabled，不可作 template" in text
+    assert "qa" in text and "disabled，不可作 agent_id" in text
     # 行序与标头分离
     lines = text.splitlines()
-    assert len(lines) == 4 and lines[0].startswith("[id")
+    assert len(lines) == 4 and lines[0].startswith("[agent_id")
 
 
 def test_list_agent_empty(monkeypatch):

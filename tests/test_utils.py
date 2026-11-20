@@ -266,3 +266,65 @@ def test_resolve_workspace_path_absolute_untouched(monkeypatch):
     monkeypatch.setattr(u, "get_workspace_dir", lambda: r"D:\base")
     abs_path = os.path.join(os.getcwd(), "somewhere", "out.md")
     assert u.resolve_workspace_path(abs_path) == os.path.normpath(abs_path)
+
+
+# ── 截断全文落盘（v0.2.4，QwenPaw 大 tool_result 同款机制） ──
+
+
+def test_truncate_tail_with_file_pointer():
+    """落盘成功 → 尾部含文件路径 + 总行数 + 从第X行开始续读（含被截断行）。"""
+    import utils as u
+
+    tail = u.truncate_tail(16000, r"C:\ws\tool_results\agent-tools-abc.txt",
+                           42, 200)
+    assert tail.startswith("<<<TRUNCATED>>>")
+    assert "agent-tools-abc.txt" in tail
+    assert "共 200 行" in tail
+    assert "从第 42 行开始续读" in tail
+    assert "包含被截断的那行" in tail
+
+
+def test_truncate_tail_degrades_without_file():
+    """落盘失败（file_path=None）→ 降级为纯截断提示。"""
+    import utils as u
+
+    assert u.truncate_tail(16000, None, None, None) == \
+        "<<<TRUNCATED>>>正文已截断（上限 16000 字符）"
+
+
+def test_get_tool_results_dir_reads_agent_json(tmp_path):
+    """agent.json 有 tool_results_cache → 用配置值（与宿主对齐）。"""
+    import json
+
+    import utils as u
+
+    (tmp_path / "agent.json").write_text(json.dumps({
+        "running": {"light_context_config": {
+            "tool_result_pruning_config": {"tool_results_cache": "my_cache"}}},
+    }), encoding="utf-8")
+    assert u.get_tool_results_dir(str(tmp_path)) == str(tmp_path / "my_cache")
+
+
+def test_get_tool_results_dir_fallback_default(tmp_path):
+    """无 agent.json / 字段缺失 → 回落默认 tool_results。"""
+    import utils as u
+
+    assert u.get_tool_results_dir(str(tmp_path)) == \
+        str(tmp_path / "tool_results")
+    (tmp_path / "agent.json").write_text("{}", encoding="utf-8")
+    assert u.get_tool_results_dir(str(tmp_path)) == \
+        str(tmp_path / "tool_results")
+
+
+def test_save_truncated_body_writes_file(tmp_path):
+    """全文写入 workspace tool_results（宿主 save_text_output），内容一致。"""
+    import utils as u
+
+    body = "line1\nline2\n" + "x" * 200
+    path = u.save_truncated_body(body, str(tmp_path))
+    assert path is not None
+    files = list((tmp_path / "tool_results").glob("agent-tools-*.txt"))
+    assert len(files) == 1 and str(files[0]) == path
+    assert files[0].read_text(encoding="utf-8") == body
+    assert u.save_truncated_body("", str(tmp_path)) is None
+    assert u.save_truncated_body(body, "") is None

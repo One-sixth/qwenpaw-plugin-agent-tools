@@ -1,6 +1,35 @@
 # 更新日志
 
 
+## 0.2.5（2026-11-20）
+
+wait / notice 支持多会话：`chat_id` 可传单个或多个，一次调用同时等待 / 注册多个子会话。
+
+- **chat_id 列表归一**（`tools/common.py: normalize_chat_id_list`）：兼容真 list / 单个 str / LLM 常误传的 JSON 字符串数组（`'["a","b"]'` → `json.loads`，参照 tool-wait_agent_task 容错写法）；逐项 strip 去引号、去重保序；空项/空列表/非 str 非 list 报错
+- **wait 多会话（作者拍板）**：任一 id 不存在/无效 → **提前失败、不对任何会话发起等待**，逐条返回「chat_id 'xxx' 不存在，请检查拼写」；全部有效 → 并发 `asyncio.gather(return_exceptions=True)`（单块异常隔离为该块错误文本，不整单抛错），**全部完成（或各自超时）后才返回**，每块前缀 `### 会话 {chat_id}`、每块正文独立截断落盘
+- **notice 文案极简化（作者拍板）**：固定 5 句——`完成通知已注册` / `完成通知已取消` / `目标会话未注册完成通知`（已终态或空闲无回合）/ `目标会话未找到，注册失败`（注册时找不到/id 无效/workspace 未运行）/ `目标会话未找到，取消失败`（取消时先校验存在性，找不到）；监视兜底、幂等、撤回等不单独措辞；**多会话每块** `chat_id=<解析后完整 id>` + 换行 + 文案，块间空行，uuid 只在 chat_id 行出现一次；部分成功不整单失败，全部失败仍保持块格式（is_error=True）；多块异常隔离（单块异常转该块错误文本，不整单抛错）
+- **单会话**：len==1 仍走原逻辑；wait 单会话输出逐字节不变；notice 单会话文案按作者要求精简（消息内不再重复 uuid、取消文案去掉待发条数）
+- **schema**：wait / notice 的 `chat_id` → `anyOf: [string, array<string>]`；description 补多会话说明；plugin.json meta.tools 描述同步
+- **版本**：0.2.4 → 0.2.5（0.2.4 已热装生效，新特性单开）
+- 测试：pytest **167 全绿**（131 + 36：normalize 7 + wait 多会话 4 + 单会话格式不变 1 + notice 多会话 2 + 复审修复 3 + 边角 4 + 取消文案 1 + 极简文案 5 + 取消不存在 2 + 复审补齐 7）
+
+
+## 0.2.4（2026-11-20）
+
+notice/wait/recv 正文截断 → 全文落盘 + 文件指引（作者拍板：模仿 QwenPaw 大 tool_result 机制，让 wait 截断终于有恢复指引、并保证 recv 加限制后旧 recv 指针仍成立）+ 上限分档（notice 4000 / wait 9000 / recv 9000）。
+
+- **背景**：此前 wait 截断只盖 `…` 省略号、无任何恢复指引，超上限部分不可达；notice 截断尾部指向 `communicate(recv)`（recv 当时无上限 → 承诺成立），但本批要给 recv 也加 9000 上限，旧 recv 指针会变成空头承诺——故统一改为落盘文件指引：wait 补上指针、recv 指针保持有效
+- **上限分档（作者拍板）**：`NOTIFY_BODY_LIMIT` = 4000（通知可能多条聚合同气泡，收小）/ `WAIT_BODY_LIMIT` = 9000（单目标等待，可放宽）/ `RECV_BODY_LIMIT` = 9000（recv 与 wait 同档；recv 此前无截断、全量返回）
+- **机制（QwenPaw `ToolResultPruningMiddleware`/`ToolResultPruner` 同款）**：正文超上限时，全文经宿主 `save_text_output`（`qwenpaw.agents.tools.utils:112`，调用时轻量 import）写入**读尾部的那个会话**的 workspace `tool_results` 目录，文件命名 `agent-tools-{uuid}.txt`（与宿主自有 `tool-result-{uuid}.txt` 可区分）；子目录名读 agent.json `running.light_context_config.tool_result_pruning_config.tool_results_cache` 配置与宿主对齐（本机值 `tool_results`），失败回落默认；recv 落盘的是完整输出文本（含标题行与分节头）
+- **用户隔离检查（作者要求）**：宿主 tool_results 目录是 workspace 维度（`{workspace_dir}/tool_results`，`runtime/builder.py:1291`），本机部署 workspace 按 agent 隔离 → 用户隔离；文件落在读尾部的会话的 workspace——wait/recv 侧 = 调用方会话（`get_current_context` → agent_id → `profile.workspace_dir`），notice 侧 = 唤醒方会话（`NoticeRecord.wake_agent_id` → `profile.workspace_dir`），不拿错
+- **尾部文案**（标记 + 两换行 + 一行）：`<<<TRUNCATED>>>正文已截断（上限 {limit} 字符）。全文：{path}（共 N 行），从第 {M} 行开始续读（包含被截断的那行）`——M = 切点所在行号（该行含被截断的半行，从该行起读会完整重取该行）；不点名工具/参数（作者拍板：只说从哪行续读）；落盘失败降级 `<<<TRUNCATED>>>正文已截断（上限 {limit} 字符）`
+- **notice 通知头改版（作者拍板）**：`[agent 会话通知] chat_id=xxx（template=label）` → 三行 `[Agent会话通知]` / `agent_id={target_agent_id}` / `chat_id={target_chat_id}`——agent 开头大写去空格、字段名 template→agent_id（取 `NoticeRecord.target_agent_id` 真实 agent id，弃用展示用 `template_label`）、中间空格改换行
+- **命名统一（作者拍板）**：list_agent 列名 `id`→`agent_id`、spawn 参数 `template`→`agent_id`（schemas.py 属性名 + 函数签名 + docstring/报错/提示 + list_session 显示 `template=`→`agent_id=` 全同步）；内部 `SpawnRecord.template` 字段**已移除**、统一用 `agent_id`（持久化写入改 `agent_id` 键、读取回落 `template` 键兼容 v0.1.8 起落盘的旧会话）；spawn 内部父会话变量 `agent_id`→`parent_agent_id`、`template_id`→`target_agent_id` 避撞名；顺带移除死字段 `NoticeRecord.template_label`（通知头改版后只写不读，删字段定义 + notice.py 赋值两处）
+- **utils 新增**：`get_agent_workspace_dir`（load_config().agents.profiles）/ `get_tool_results_dir`（agent.json 配置 + 回落）/ `save_truncated_body`（宿主 save_text_output + 异常兜底 None）；`truncate_tail` 扩展 file_path/start_line/total_lines 参数
+- **已知局限**：每次截断生成新 uuid 文件（wait 超时 / recv 重复调用会重复落盘）；落盘目录与宿主共用 `tool_results`，随宿主 `offload_retention_days`（本机 5 天）经 `cleanup_expired` 按 mtime 清理（`offloader.py` glob `*.txt`），故尾部文件短期可用、超期路径 404
+- 测试：pytest **131 全绿**（122 + 9：truncate_tail 带/不带指针格式、get_tool_results_dir 配置读/回落、save_truncated_body 真落盘 + 空输入、wait/notice/recv 截断全链路集成——文件内容一致 + 尾部指针 + recv 短正文原样透传）
+
+
 ## 0.2.3（2026-11-18）
 
 notice 气泡 busy 重试刷屏修复（作者报 bug：wait + notice 并用、父会话继续干活期间气泡反复弹）。

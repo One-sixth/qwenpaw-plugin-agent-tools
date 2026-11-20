@@ -15,7 +15,7 @@ QwenPaw 自带一组 agent 工具（`list_agents` / `chat_with_agent` / `submit_
 
 本插件把子会话当成一个**长期存在的对话对象**来管理，而不是一次性调用：
 
-- spawn 出来的会话**一直活着**，随时续聊，还能以其他 agent 为模板开
+- spawn 出来的会话**一直活着**，随时续聊，还能以其他 agent 的身份开
 - `wait` 超时只是「我先不等了」，子会话照常跑完，回头再取
 - `notice` 挂上完成通知，子会话跑完会**主动唤醒**你（成功/失败/取消都触发）
 - `context_read` / `context_export` 跨会话读写历史——接手别人 spawn 的会话也行
@@ -24,23 +24,23 @@ QwenPaw 自带一组 agent 工具（`list_agents` / `chat_with_agent` / `submit_
 
 | 工具 | 干什么 |
 |---|---|
-| `agent_tools_list_agent` | 列出可用 agent（spawn 的模板来源） |
-| `agent_tools_spawn` | 以某个 agent 为模板开持久子会话，默认后台运行，返回 chat_id |
-| `agent_tools_wait` | 前台等子会话跑完，直接拿最终正文；超时不杀会话 |
+| `agent_tools_list_agent` | 列出可用 agent（spawn 的 agent_id 来源） |
+| `agent_tools_spawn` | 以某个 agent 身份开持久子会话，默认后台运行，返回 chat_id |
+| `agent_tools_wait` | 前台等子会话跑完，直接拿最终正文；超时不杀会话。可传多个 chat_id（数组）：全部完成才返回，任一不存在/无效（含对应 agent 未运行）则整单提前失败 |
 | `agent_tools_communicate` | 续聊（send）/ 读最新输出（recv）/ 停止（stop）；对方忙则自动排队 |
-| `agent_tools_notice` | 挂完成通知，子会话结束时自动唤醒你，正文随通知送达 |
+| `agent_tools_notice` | 挂完成通知，子会话结束时自动唤醒你，正文随通知送达。可传多个 chat_id 批量注册（不存在的逐个提示） |
 | `agent_tools_list_session` | 列出自己 spawn 过的会话（忘了 chat_id 时用） |
 | `agent_tools_context_read` | 读任意会话的上下文（最近几轮、思考块、工具调用都能选） |
 | `agent_tools_context_export` | 把整个会话导出成 Markdown 文件，留档复盘 |
 
-所有收 chat_id 的工具都支持完整 UUID 或它的前 8 位简写（`36053fc5` 这种），抄起来省事。
+所有收 chat_id 的工具都支持完整 UUID 或它的前 8 位简写（`36053fc5` 这种），抄起来省事。`wait` / `notice` 的 chat_id 还可以直接传数组，一次处理多个会话。
 
 ## 场景案例
 
 **派个活，等结果：**
 
 ```
-spawn(task="分析这份数据", template="demo-agent")   → 返回 chat_id
+spawn(task="分析这份数据", agent_id="demo-agent")   → 返回 chat_id
 wait(chat_id)                                        → 直接拿最终正文
 ```
 
@@ -66,6 +66,15 @@ context_read(chat_id, count=5)                       → 不确定改了啥？�
 ```
 context_read(chat_id, count=10)      → 先看它之前聊了什么
 communicate(chat_id, text="继续")    → 接着聊
+```
+
+**同时盯好几个：**
+
+```
+spawn(task="任务A")              → chat_id_A
+spawn(task="任务B")              → chat_id_B
+notice([chat_id_A, chat_id_B])   → 两个都挂通知，谁先完成先唤醒
+wait([chat_id_A, chat_id_B])     → 两个都完成才返回（任一 id 写错则整单提前失败）
 ```
 
 ## 安装

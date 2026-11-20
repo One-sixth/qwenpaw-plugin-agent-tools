@@ -206,13 +206,13 @@ def now():
 
 
 def make_record(chat_id, *, agent_id="child", session_id="sub-m0000001",
-                user_id="u", channel="console", template="", depth=0,
+                user_id="u", channel="console", depth=0,
                 parent=None, turns=None, restored=False):
     """SpawnRecord 工厂（persistence/list_session 等测试共用）。"""
     from manager import SpawnRecord
 
     return SpawnRecord(
         agent_id=agent_id, session_id=session_id, user_id=user_id,
-        channel=channel, chat_id=chat_id, template=template,
+        channel=channel, chat_id=chat_id,
         depth=depth, parent=parent, turns=turns or [], restored=restored,
     )

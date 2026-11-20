@@ -632,7 +632,8 @@ def test_export_off_mode_never_renders_evicted(monkeypatch):
     from tools.context_export import agent_tools_context_export
 
     _patch_export(monkeypatch, evicted_count=4, msgs=None)
-    out = r"C:\Users\TWD\.qwenpaw\workspaces\default\tmp_export_off.md"
+    import os as _os, tempfile as _tf
+    out = _os.path.join(_tf.gettempdir(), "qwenpaw_at_tmp_export_off.md")
     chunk = asyncio.run(agent_tools_context_export(
         chat_id="chat-exp", output_path=out,
     ))
@@ -654,7 +655,8 @@ def test_export_off_mode_count_sentinel_error(monkeypatch):
     from tools.context_export import agent_tools_context_export
 
     _patch_export(monkeypatch, evicted_count=-1, msgs=None)
-    out = r"C:\Users\TWD\.qwenpaw\workspaces\default\tmp_export_err.md"
+    import os as _os, tempfile as _tf
+    out = _os.path.join(_tf.gettempdir(), "qwenpaw_at_tmp_export_err.md")
     chunk = asyncio.run(agent_tools_context_export(
         chat_id="chat-exp", output_path=out,
     ))
@@ -671,7 +673,8 @@ def test_export_off_mode_count_none_disabled(monkeypatch):
     from tools.context_export import agent_tools_context_export
 
     _patch_export(monkeypatch, evicted_count=None, msgs=None)
-    out2 = r"C:\Users\TWD\.qwenpaw\workspaces\default\tmp_export_none.md"
+    import os as _os, tempfile as _tf
+    out2 = _os.path.join(_tf.gettempdir(), "qwenpaw_at_tmp_export_none.md")
     chunk2 = asyncio.run(agent_tools_context_export(
         chat_id="chat-exp", output_path=out2,
     ))

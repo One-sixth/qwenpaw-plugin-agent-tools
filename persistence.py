@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """簿记身份持久化（v0.1.8，作者拍板混合方案）。
 
-- 「身份账」持久化：spawn 完成时把 template / depth / parent / spawned_at
+- 「身份账」持久化：spawn 完成时把 agent_id / depth / parent / spawned_at
   写入宿主 ``chat.meta["agent_tools"]``——跟随宿主 chats.json 落盘，
   重启/热装清簿记后短 id 匹配、祖先链防误用可重建。
 - 「易变账」留内存：turns / queues / active / notices 不持久化（回合
@@ -33,7 +33,7 @@ def build_spawn_meta(record: SpawnRecord, parent_chat_id) -> dict:
     """SpawnRecord → chat.meta["agent_tools"] 身份字段（终身不变，一次写入）。"""
     parent_agent_id, parent_session_id = record.parent or (None, None)
     return {
-        "template": record.template or record.agent_id,
+        "agent_id": record.agent_id,
         "depth": int(record.depth),
         "parent_agent_id": parent_agent_id,
         "parent_session_id": parent_session_id,
@@ -120,7 +120,8 @@ def restore_ledger_from_chats(mgr=None) -> int:
                 continue
             parent_a = identity.get("parent_agent_id")
             parent_s = identity.get("parent_session_id")
-            template = str(identity.get("template") or _agent_id)
+            aid = str(identity.get("agent_id") or identity.get("template")
+                      or _agent_id)
             try:
                 depth = int(identity.get("depth") or 1)
             except (TypeError, ValueError):
@@ -132,12 +133,11 @@ def restore_ledger_from_chats(mgr=None) -> int:
             except (TypeError, ValueError):
                 created = datetime.now()
             mgr.spawn_records[cid] = SpawnRecord(
-                agent_id=template,
+                agent_id=aid,
                 session_id=str(chat.get("session_id") or ""),
                 user_id=str(chat.get("user_id") or ""),
                 channel=str(chat.get("channel") or "console"),
                 chat_id=cid,
-                template=template,
                 depth=depth,
                 parent=(parent_a, parent_s) if parent_a and parent_s else None,
                 created_at=created,

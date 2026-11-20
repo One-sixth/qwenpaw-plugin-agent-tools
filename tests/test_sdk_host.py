@@ -91,7 +91,7 @@ def test_list_agent_runs_in_host():
         r = await host.call_tool("agent_tools_list_agent", {})
         assert not r.is_error
         text = r.content[0].text
-        assert "[id" in text or "当前没有" in text
+        assert "[agent_id" in text or "当前没有" in text
 
     _run(_driver_load(check))
 

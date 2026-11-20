@@ -1,18 +1,24 @@
 # -*- coding: utf-8 -*-
 """工具层共享 helper：chat_id 入口校验 / 终态描述 / 防误用拦截。"""
 
+import json
 import logging
 
 try:
     from ..manager import STATUS_CANCELLED, STATUS_COMPLETED, STATUS_FAILED
-    from ..utils import make_error, truncate_text
+    from ..utils import (get_agent_workspace_dir, get_current_context,
+                         make_error, save_truncated_body, truncate_tail,
+                         truncate_text)
 except ImportError:  # 兼容 pytest 直接以项目根导入
     from manager import STATUS_CANCELLED, STATUS_COMPLETED, STATUS_FAILED
-    from utils import make_error, truncate_text
+    from utils import (get_agent_workspace_dir, get_current_context,
+                       make_error, save_truncated_body, truncate_tail,
+                       truncate_text)
 
 logger = logging.getLogger(__name__)
 
-WAIT_BODY_LIMIT = 8000
+# wait 结果正文截断上限（2026-11-20 作者拍板：单目标等待可放宽，与 recv 同档）
+WAIT_BODY_LIMIT = 9000
 
 # 防误用拦截报错（设计 §3.9⑦ 作者定稿原文）
 MISUSE_ERROR = (
@@ -31,17 +37,32 @@ def check_chat_id(chat_id):
         return resolve_chat_id_input(chat_id)
 
 
+def truncate_wait_body(body: str) -> str:
+    """正文超 WAIT_BODY_LIMIT → 全文落盘调用方 workspace + 文件指引；否则原样。
+
+    三条 wait 出口共用（describe_terminal 终态路径 + wait_for_terminal 的
+    stale 分支 / 无簿记迁移门）——保证「超限必落盘+指引」覆盖所有返回正文的路径。
+    """
+    if len(body) <= WAIT_BODY_LIMIT:
+        return body
+    # 超限：全文落盘调用方会话 workspace tool_results（QwenPaw 同款）
+    ws_dir = get_agent_workspace_dir(get_current_context()[0])
+    file_path = save_truncated_body(body, ws_dir)
+    tail = truncate_tail(WAIT_BODY_LIMIT, file_path,
+                         body[:WAIT_BODY_LIMIT].count("\n") + 1,
+                         body.count("\n") + 1)
+    return truncate_text(body, WAIT_BODY_LIMIT, tail=tail)
+
+
 def describe_terminal(turn, target, tracker) -> str:
     """终态回合 → 结果文本（completed 带正文截断；正文缺失时从会话文件兜底）。"""
     status = turn.status
     if status == STATUS_COMPLETED:
         body = turn.result_text or ""
-        return (
-            f"状态：completed\n—— 结果正文 ——\n{truncate_text(body, WAIT_BODY_LIMIT)}"
-            if body
-            else "状态：completed\n（正文为空；可用 communicate(chat_id, "
-                 "action='recv') 读会话文件）"
-        )
+        if not body:
+            return ("状态：completed\n（正文为空；可用 communicate(chat_id, "
+                    "action='recv') 读会话文件）")
+        return f"状态：completed\n—— 结果正文 ——\n{truncate_wait_body(body)}"
     if status == STATUS_FAILED:
         return f"状态：failed\n原因：{turn.error or '（无摘要）'}"
     if status == STATUS_CANCELLED:
@@ -121,3 +142,50 @@ def _lookup_agent(manager, session_id: str) -> str:
     按 (agent_id, session_id) 元组匹配，空串不命中）。"""
     record = manager.get_record_by_session(session_id)
     return record.agent_id if record else ""
+
+
+
+def chunk_text(chunk) -> str:
+    """ToolChunk → 文本（多会话聚合时取各块正文）。"""
+    try:
+        return chunk.content[0].text
+    except Exception:  # noqa: BLE001
+        return str(chunk)
+
+
+def normalize_chat_id_list(value) -> "tuple[list[str] | None, str | None]":
+    """把 chat_id 参数归一为 list[str]（去重保序）→ (ids, error)。
+
+    兼容三种输入：真 list / 单个 str / LLM 常误传的 JSON 字符串数组
+    （如 '["a","b"]'——参照 tool-wait_agent_task 的容错写法）。
+    空项 / 空列表 / 非 str 非 list → error。
+    """
+    if isinstance(value, (list, tuple)):
+        raw = list(value)
+    elif isinstance(value, str):
+        s = value.strip()
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                parsed = json.loads(s)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                return None, "chat_id 需为字符串或字符串数组（JSON 解析失败）"
+            raw = parsed if isinstance(parsed, list) else [value]
+        else:
+            raw = [value]
+    else:
+        return None, "chat_id 需为字符串或字符串数组"
+
+    ids: list[str] = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, str):
+            return None, "chat_id 列表中含非字符串项"
+        s = item.strip().strip("\"'").strip()
+        if not s:
+            return None, "chat_id 列表中含空项（请检查拼写）"
+        if s not in seen:
+            seen.add(s)
+            ids.append(s)
+    if not ids:
+        return None, "chat_id 列表为空"
+    return ids, None
