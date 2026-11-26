@@ -223,7 +223,7 @@ agent_tools_list_agent() -> text
 ```
 
 - **数据来源（纯内部路线）**：`load_config()` 读 `agents.profiles`（id / workspace_dir / enabled）+ 逐个读各 workspace 的 `agent.json`（`name` / `description`）——不走官方 HTTP `/agents`（决策 11 自洽）
-- **输出**：紧凑一行式，每行 `agent_id ｜ name ｜ enabled ｜ description`；当前 agent 标注 ★，disabled 标注（disabled 不可作 agent_id，spawn 校验会拒绝）
+- **输出**：紧凑一行式，每行 `agent_id ｜ name ｜ enabled ｜ description`；当前 agent 标注 ★；disabled 只标状态，「不可作 agent_id」说明只在表头，行内不重复
 - 用途：spawn 的 `agent_id` 取值来源（功能与官方 `list_agents` 对齐，输出格式更紧凑省 token）
 - docstring：`查看当前所有可用 agent（agent_id/名字/启用状态/描述）。spawn 的 agent_id 传这里的 agent_id 字段（非显示名）。`
 

@@ -2,7 +2,7 @@
 
 ## 一句话定位
 
-agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.5，2026-11-17 首发，v0.2.0 起 SDK 形态）。
+agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会话 + 续聊/等待/通知/上下文读取全链路 + 短 id（歧义拒绝+schema 可发现性）+ 簿记身份持久化 + 防误用三态 + schema 瘦身（8 工具，当前 v0.2.6，2026-11-17 首发，v0.2.0 起 SDK 形态）。
 
 ## 关键档案
 
@@ -11,7 +11,10 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 - 架构与用法：见 `README.md`
 - 版本细节：见 `CHANGELOG.md`（每批次完整记录）
 
-## 当前状态（v0.2.5）
+## 当前状态（v0.2.6）
+
+- **list_agent disabled 行去冗余（v0.2.6，2026-11-26，作者报 bug）**：`tools/list_agent.py` 删局部变量 `enabled`，enabled 列从 `disabled（disabled，不可作 agent_id）` 改为纯 `disabled`；「disabled 不可作 agent_id」说明保留在表头（文案逐字未变），DESIGN §3.7 同步；测试补三条断言（表头保留说明 / disabled 行整行精确 + 行内负向 / enabled 行整行精确）；三路无上下文交叉复审（代码 / 文档契约 / 运行时热装）无 HIGH，抽验修掉 DESIGN 括注与表头字面不符、测试缺正向断言两处；schema 快照 `--check` 一致（8 工具）；167 测试全绿
+- **✅ 部署状态（2026-11-26）**：仓库 `plugin.json` = 0.2.6，已打包 `D:\Temp\qwenpaw-plugin-agent-tools-0.2.6.zip`（Python zipfile 按 `git ls-files -z` 原始相对路径写 46 条，⚠️ PowerShell `Compress-Archive -Path $files` 会把目录拍平到 zip 根、禁用）→ `qwenpaw plugin install <zip> --force` 返回 `active; enabled=True`；装机 `plugin.json` version=0.2.6、`tools/list_agent.py` 旧 `enabled` 变量已消失、表头完整；`qwenpaw plugin list` 显示 v0.2.6。**实机验收通过（下一回合）**：`agent_tools_list_agent` 输出 qa 行为 `QwenPaw_QA_Agent_0.2 ｜ QA Agent ｜ disabled ｜ Builtin Q&A helper ...`（行内冗余说明已消失、表头完整），印证「热装下一回合即生效、无需新会话」；安装当回合曾报 `generation 0 is no longer active`（工具仍绑旧 generation 的瞬态现象，非插件故障）；已 commit 并 push、发 release v0.2.6（作者授权）
 
 - **✅ 部署状态（2026-11-20，历史）**：当时仓库 `plugin.json` = 0.2.4、已热装 v0.2.4 且本会话实机验收通过——zip 用 `git ls-files -z` 导无顶层目录（45 文件，`D:\Temp\qwenpaw-plugin-agent-tools-0.2.4.zip`）→ `qwenpaw plugin install --force`（`active; enabled=True`），装机目录 `C:\Users\<用户>\.qwenpaw\plugins\qwenpaw-plugin-agent-tools` 实测 version=0.2.4、`tools/spawn.py` template 引用=0；实机验证：spawn 参数已是 `agent_id`、传 `template=` 被 `Additional properties are not allowed` 硬拒、`list_agent` 表头 `[agent_id ｜ name ｜ enabled ｜ description]`、`list_session` 显示 `agent_id=default`、`wait` 超 9000 截断并全文落盘调用方 workspace `tool_results\agent-tools-75791b5f….txt`（60 行完整、尾部指引「从第 44 行开始续读」准确）；**热装后下一回合即生效、无需新会话**（工具每回合从注册表装配，不是会话级持久快照）；**未 commit（作者自行提交）**
 - **多会话 wait/notice（v0.2.5，2026-11-20，作者拍板）**：`chat_id` 支持单个或多个（真 list / JSON 字符串数组均容错，`normalize_chat_id_list` 去重保序，参照 tool-wait_agent_task）；wait 多 id = 先整体预校验、任一不存在提前失败全都不等、全部有效则并发等待全部完成才返回（每块 `### 会话 {cid}`、独立截断落盘）；notice 多 id = 部分成功、每块 `chat_id=<完整id>` + 5 句文案（完成通知已注册/完成通知已取消/目标会话未注册完成通知/目标会话未找到，注册失败/目标会话未找到，取消失败，兜底/幂等/撤回不单写）；单会话仍走原逻辑（wait 逐字节不变、notice 用 5 句文案）；schema `chat_id` → anyOf string 或 array；全失败保持块格式（is_error=True）、取消先校验存在性且无待发条数、uuid 只在 chat_id 行出现一次、wait/notice 均单块异常隔离；167 测试全绿（+36）
@@ -55,6 +58,7 @@ agent / 子 agent 会话管理插件：spawn 其他 agent 模板的持久子会�
 | 0.2.3 | notice 气泡 busy 重试刷屏修复（2026-11-18，作者报 bug）：wait+notice 并用、父会话干活期间气泡每 3s 反复弹——根因 `_deliver` 双投递顺序颠倒（照抄 process-tools 时「唤醒→气泡」写成「气泡→唤醒」，busy 重试每次都 append）；修复对齐「唤醒成功才发气泡」：busy 不发/成功才发/真失败仍尽力发；抽 `_push_bubble()`；122 绿（+2 回归）（详见 CHANGELOG 0.2.3） |
 | 0.2.4 | 截断全文落盘 + 上限分档（2026-11-20，作者拍板）：notice/wait/recv 正文超上限（notice 4000 聚合收小 / wait 9000 单目标 / recv 9000 同档——recv 此前无截断）→ 全文写读尾部会话的 workspace `tool_results`（宿主 `save_text_output`，`agent-tools-{uuid}.txt`，子目录名读 agent.json `tool_results_cache`）+ 尾部改文件指引（路径+总行数+从第 M 行续读，不点名工具，落盘失败降级纯提示）——旧 wait 截断只盖 `…` 无指引、notice 旧指针指向 recv（recv 加限制后会失效），故统一改落盘指针；用户隔离检查（宿主 tool_results 是 workspace 维度，wait/recv 侧=调用方/notice 侧=唤醒方会话）；utils 新增 3 函数；131 绿（+9）（详见 CHANGELOG 0.2.4） |
 | 0.2.5 | wait/notice 多会话（2026-11-20，作者拍板）：chat_id 支持单个/多个（真实 list / JSON 字符串数组容错，normalize_chat_id_list 去重保序、拒非字符串项）；wait 多 id = 任一不存在提前失败全不等、全部有效并发等待全部完成才返回（单块异常隔离）；notice 多 id = 部分成功（每块 `chat_id=<完整id>` + 5 句文案）、全无效整单 error、取消先校验存在性（不存在→取消失败）、多块异常隔离；schema chat_id anyOf string 或 array；167 绿（+36）（详见 CHANGELOG 0.2.5） |
+| 0.2.6 | list_agent disabled 行去冗余（2026-11-26，作者报 bug）：enabled 列从 `disabled（disabled，不可作 agent_id）` 改纯 `disabled`，说明只在表头；DESIGN §3.7 + 测试断言同步（表头正向 / disabled 整行精确+负向 / enabled 整行精确）；三路无上下文复审无 HIGH、抽验修两处；schema 快照一致、167 绿；已热装 v0.2.6、下一回合实机验收通过（详见 CHANGELOG 0.2.6） |
 
 
 ## 设计决策要点（拍板记录）

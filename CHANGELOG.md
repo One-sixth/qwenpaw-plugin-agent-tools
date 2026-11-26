@@ -1,6 +1,17 @@
 # 更新日志
 
 
+## 0.2.6（2026-11-26）
+
+list_agent disabled 行去冗余说明（作者报「disabled（disabled，不可作 agent_id）」多余）。
+
+- **行内说明移除**：`tools/list_agent.py` 删局部变量 `enabled`，enabled 列只输出 `enabled` / `disabled` 状态本身；「disabled 不可作 agent_id」说明保留在表头，行内不再重复（表头文案逐字未变，schema / 工具签名 / 返回结构均不变）
+- **文档同步**：`DESIGN.md` §3.7 输出描述改为「disabled 只标状态，『不可作 agent_id』说明只在表头，行内不重复」
+- **测试补强**：disabled 行整行精确断言 + 行内不含「不可作 agent_id」负向断言 + 表头保留该说明的正向断言 + enabled 行整行精确断言
+- **三路无上下文交叉复审**（代码回归 / 文档契约与引用 / 运行时与热装风险）：无 HIGH；抽验后修掉 DESIGN 括注与表头字面不符、测试缺正向断言两处
+- **版本**：0.2.5 → 0.2.6
+- 测试：pytest **167 全绿**
+
 ## 0.2.5（2026-11-20）
 
 wait / notice 支持多会话：`chat_id` 可传单个或多个，一次调用同时等待 / 注册多个子会话。

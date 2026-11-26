@@ -38,10 +38,9 @@ def agent_tools_list_agent():
         except Exception:  # noqa: BLE001
             pass  # agent.json 缺失/坏档 → 空字段
         star = " ★" if agent_id == current_agent else ""
-        enabled = "" if profile.enabled else "（disabled，不可作 agent_id）"
         lines.append(
             f"{agent_id}{star} ｜ {name or '（无名）'} ｜ "
-            f"{'enabled' if profile.enabled else 'disabled'}{enabled} ｜ "
+            f"{'enabled' if profile.enabled else 'disabled'} ｜ "
             f"{description or '（无描述）'}"
         )
     if not lines:

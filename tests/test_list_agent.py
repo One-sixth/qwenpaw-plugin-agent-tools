@@ -28,13 +28,18 @@ def test_list_agent_header_and_rows(monkeypatch):
     # 标头（作者拍板：列意义说明）
     assert text.startswith("[agent_id ｜ name ｜ enabled ｜ description]")
     assert "spawn 的 agent_id 传这里的 agent_id 字段" in text
+    assert "disabled 不可作 agent_id" in text  # 说明移到表头后不能跟着消失
     # 行格式
     assert "default ★" in text            # 当前 agent 标注
     assert "demo-agent" in text and "（无名）" in text   # agent.json 缺失降级
-    assert "qa" in text and "disabled，不可作 agent_id" in text
     # 行序与标头分离
     lines = text.splitlines()
     assert len(lines) == 4 and lines[0].startswith("[agent_id")
+    assert "default ★ ｜ （无名） ｜ enabled ｜ （无描述）" in lines  # enabled 行整行格式
+    # disabled 行只标状态，不重复表头已写明的「不可作 agent_id」说明
+    qa_line = next(line for line in lines if line.startswith("qa ｜"))
+    assert qa_line == "qa ｜ （无名） ｜ disabled ｜ （无描述）"
+    assert "不可作 agent_id" not in qa_line
 
 
 def test_list_agent_empty(monkeypatch):
